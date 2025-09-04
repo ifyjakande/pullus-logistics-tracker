@@ -186,9 +186,6 @@ class LogisticsDashboardUpdater:
             'LAGOS': ['LAGOS', 'LAGO', 'LOS'],
             'KANO': ['KANO', 'KAN'],
             'COLD ROOM': ['COLD ROOM', 'COLDROOM', 'COLD', 'COOLING', 'COLD STORE', 'COLDSTORE', 'STORAGE', 'COOL ROOM', 'COOLROOM'],
-            'IBADAN': ['IBADAN', 'IBADA'],
-            'PORT HARCOURT': ['PORT HARCOURT', 'PH', 'PORT-HARCOURT'],
-            'MAIDUGURI': ['MAIDUGURI', 'MAIDUGRI'],
             'JOS': ['JOS', 'JO'],
             'KARU': ['KARU', 'KAR'],
             'LOKOGOMA': ['LOKOGOMA', 'LOKO']
