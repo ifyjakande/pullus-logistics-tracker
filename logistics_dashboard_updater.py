@@ -19,13 +19,16 @@ from datetime import datetime, timedelta
 import time
 import random
 import re
+import os
+import json
 from typing import Dict, List, Any, Tuple
 
 class LogisticsDashboardUpdater:
-    def __init__(self, credentials_path: str, spreadsheet_id: str):
+    def __init__(self, credentials_path: str = None, spreadsheet_id: str = None):
         """Initialize the dashboard updater with credentials and spreadsheet ID."""
-        self.credentials_path = credentials_path
-        self.spreadsheet_id = spreadsheet_id
+        # Use environment variables or parameters
+        self.credentials_path = credentials_path or os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE', 'service_account.json')
+        self.spreadsheet_id = spreadsheet_id or os.getenv('SPREADSHEET_ID')
         self.gc = None
         self.spreadsheet = None
         self.data_sheet = None
@@ -62,10 +65,22 @@ class LogisticsDashboardUpdater:
                 'https://www.googleapis.com/auth/drive'
             ]
             
-            creds = Credentials.from_service_account_file(
-                self.credentials_path, 
-                scopes=scopes
-            )
+            # Handle both file path and JSON string from environment
+            if os.path.isfile(self.credentials_path):
+                creds = Credentials.from_service_account_file(
+                    self.credentials_path, 
+                    scopes=scopes
+                )
+            else:
+                # Try to parse as JSON string (for GitHub Actions secrets)
+                try:
+                    service_account_info = json.loads(os.getenv('GOOGLE_SERVICE_ACCOUNT', '{}'))
+                    creds = Credentials.from_service_account_info(
+                        service_account_info, 
+                        scopes=scopes
+                    )
+                except json.JSONDecodeError:
+                    raise ValueError("Invalid service account configuration")
             
             self.gc = gspread.authorize(creds)
             self.spreadsheet = self.gc.open_by_key(self.spreadsheet_id)
@@ -94,7 +109,7 @@ class LogisticsDashboardUpdater:
             return True
             
         except Exception as e:
-            print(f"✗ Error connecting to Google Sheets: {e}")
+            print(f"✗ Error connecting to Google Sheets: Connection failed")
             return False
     
     def rate_limit_check(self):
@@ -995,7 +1010,8 @@ class LogisticsDashboardUpdater:
             print("=" * 60)
             print("🎉 Dashboard update completed successfully!")
             print(f"📈 Processed {len(df)} records")
-            print(f"📅 Date range: {df['Date'].min()} to {df['Date'].max()}")
+            if len(df) > 0:
+                print(f"📅 Data processing completed successfully")
             print("🎨 Beautiful formatting applied")
             print("💡 All calculations use Grand Total Cost (Logistics + Fuel + Misc)")
             
@@ -1006,12 +1022,12 @@ class LogisticsDashboardUpdater:
             return False
 
 if __name__ == "__main__":
-    # Configuration
-    CREDENTIALS_PATH = "pullus-pipeline-40a5302e034d.json"
-    SPREADSHEET_ID = "1m9gF4396C5qshf7jhYMboHFGUTC9dbaQqMI4R4Tk9jY"
+    # Configuration - use environment variables in CI/CD, fallback to local files
+    credentials_path = os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE') or "pullus-pipeline-40a5302e034d.json"
+    spreadsheet_id = os.getenv('SPREADSHEET_ID') or "1m9gF4396C5qshf7jhYMboHFGUTC9dbaQqMI4R4Tk9jY"
     
     # Create updater instance
-    updater = LogisticsDashboardUpdater(CREDENTIALS_PATH, SPREADSHEET_ID)
+    updater = LogisticsDashboardUpdater(credentials_path, spreadsheet_id)
     
     # Run the update
     success = updater.run_update()
