@@ -22,6 +22,7 @@ import re
 import os
 import json
 from typing import Dict, List, Any, Tuple
+from difflib import SequenceMatcher
 
 class LogisticsDashboardUpdater:
     def __init__(self, credentials_path: str = None, spreadsheet_id: str = None):
@@ -170,37 +171,66 @@ class LogisticsDashboardUpdater:
         normalized = re.sub(r'\s+', ' ', normalized).strip()
         return normalized
     
+    def similarity(self, a: str, b: str) -> float:
+        """Calculate similarity between two strings using SequenceMatcher."""
+        return SequenceMatcher(None, a.upper(), b.upper()).ratio()
+    
     def create_location_mapping(self, df: pd.DataFrame) -> dict:
-        """Create a mapping of location variations to standardized names."""
+        """Create a mapping of location variations to standardized names using pattern matching."""
         location_mapping = {}
         
         # Get all unique locations from both From and To columns
-        all_locations = set()
+        all_locations = list(set())
         for col in ['From_Normalized', 'To_Normalized']:
-            all_locations.update(df[col].dropna().unique())
+            all_locations.extend(df[col].dropna().unique())
         
-        # Define location groups with variations
-        location_groups = {
-            'ABUJA': ['ABUJA', 'ABUJA.', 'FCT', 'FEDERAL CAPITAL TERRITORY'],
-            'KADUNA': ['KADUNA', 'KADNA', 'KADUN'],
-            'LAGOS': ['LAGOS', 'LAGO', 'LOS'],
-            'KANO': ['KANO', 'KAN'],
-            'COLD ROOM': ['COLD ROOM', 'COLDROOM', 'COLD', 'COOLING', 'COLD STORE', 'COLDSTORE', 'STORAGE', 'COOL ROOM', 'COOLROOM'],
-            'JOS': ['JOS', 'JO'],
-            'KARU': ['KARU', 'KAR'],
-            'LOKOGOMA': ['LOKOGOMA', 'LOKO']
-        }
+        # Remove duplicates and empty strings
+        all_locations = [loc for loc in set(all_locations) if loc and loc.strip()]
         
-        # Create mapping
+        if not all_locations:
+            return location_mapping
+        
+        # Define pattern-based grouping rules
+        def get_location_group(location: str) -> str:
+            location = location.upper().strip()
+            
+            # Handle specific known patterns first
+            if 'MARABA' in location:
+                return 'MARABA'  # Group all MARABA variations together
+            elif 'U/BARDE' in location or 'UBARDE' in location:
+                return 'U/BARDE'  # Group U/BARDE variations
+            elif 'MANDO' in location and 'KUDENDE' in location:
+                return 'MANDO'  # Group MANDO & KUDENDE variations
+            elif any(word in location for word in ['COLD', 'STORAGE', 'ROOM', 'COOLING']):
+                return 'COLD ROOM'  # Group all cold storage variations
+            elif any(word in location for word in ['FCT', 'FEDERAL CAPITAL TERRITORY']):
+                return 'ABUJA'  # Group FCT variations to ABUJA
+            elif 'PLETHORA' in location:
+                # For locations with PLETHORA, extract the main location name
+                if 'JOS' in location:
+                    return 'JOS'
+                elif 'RIDO' in location:
+                    return 'RIDO'
+                elif 'MARABA' in location:
+                    return 'MARABA'
+                else:
+                    return location.replace('PLETHORA', '').strip()
+            else:
+                # For single-word locations or unmatched patterns, use as-is
+                return location
+        
+        # Create groups based on patterns
+        location_groups = {}
         for location in all_locations:
-            if location:
-                location_mapping[location] = location  # Default to itself
-                # Check for matches in location groups
-                for standard_name, variations in location_groups.items():
-                    for variation in variations:
-                        if variation in location or location in variation:
-                            location_mapping[location] = standard_name
-                            break
+            group_name = get_location_group(location)
+            if group_name not in location_groups:
+                location_groups[group_name] = []
+            location_groups[group_name].append(location)
+        
+        # Create final mapping
+        for standard_name, variations in location_groups.items():
+            for location in variations:
+                location_mapping[location] = standard_name
         
         return location_mapping
     
