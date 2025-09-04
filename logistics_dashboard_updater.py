@@ -16,10 +16,9 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime, timedelta
-import calendar
-import json
 import time
 import random
+import re
 from typing import Dict, List, Any, Tuple
 
 class LogisticsDashboardUpdater:
@@ -140,31 +139,6 @@ class LogisticsDashboardUpdater:
                     raise
         return None
     
-    def batch_format_cells(self, format_requests: List[dict]):
-        """Batch multiple formatting requests to reduce API calls."""
-        if not format_requests:
-            return
-        
-        try:
-            # Process in smaller batches to avoid overwhelming the API
-            batch_size = 10
-            for i in range(0, len(format_requests), batch_size):
-                batch = format_requests[i:i + batch_size]
-                
-                # Execute batch with retry logic
-                for request in batch:
-                    self.execute_with_retry(
-                        self.dashboard_sheet.format,
-                        request['range'],
-                        request['format']
-                    )
-                
-                # Add a small delay between batches
-                if i + batch_size < len(format_requests):
-                    time.sleep(0.5)
-                    
-        except Exception as e:
-            print(f"⚠ Warning: Some formatting may not have applied: {e}")
     
     def normalize_location(self, location: str) -> str:
         """Normalize location names for consistent comparison."""
@@ -173,7 +147,6 @@ class LogisticsDashboardUpdater:
         # Clean and normalize
         normalized = str(location).upper().strip()
         # Remove common punctuation and extra spaces
-        import re
         normalized = re.sub(r'[.,;\\-_]+', ' ', normalized)
         normalized = re.sub(r'\s+', ' ', normalized).strip()
         return normalized
@@ -412,7 +385,10 @@ class LogisticsDashboardUpdater:
             return {}
     
     def get_current_running_balance(self, df: pd.DataFrame) -> float:
-        """Get the current running balance (final balance after all transactions)."""
+        """Get the current running balance (final balance after all transactions).
+        
+        Note: Excludes fuel costs as logistics manager doesn't pay fuel from allocated funds.
+        """
         try:
             # Sort by date to get chronological order
             df_sorted = df.sort_values('Date').copy()
@@ -425,9 +401,13 @@ class LogisticsDashboardUpdater:
                 if row['Added Funds'] > 0:
                     running_balance += row['Added Funds']
                 
-                # Deduct grand total cost when expenses occur
-                if row['Grand Total Cost'] > 0:
-                    running_balance -= row['Grand Total Cost']
+                # Deduct only logistics cost + miscellaneous cost (EXCLUDE fuel cost)
+                logistics_cost = row.get('Logistics Cost', 0)
+                misc_cost = row.get('Miscellaneous Cost', 0)
+                actual_expense = logistics_cost + misc_cost
+                
+                if actual_expense > 0:
+                    running_balance -= actual_expense
             
             return running_balance
             
@@ -436,7 +416,7 @@ class LogisticsDashboardUpdater:
             return 0
     
     def calculate_monthly_breakdown(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate monthly breakdown by movement categories with month-over-month changes."""
+        """Calculate monthly breakdown by movement categories with monthly totals and averages."""
         try:
             # Group by month and movement category
             monthly_data = []
@@ -448,6 +428,7 @@ class LogisticsDashboardUpdater:
             for month in months:
                 month_data = df[df['Month_Year'] == month]
                 
+                # Add category breakdowns for this month
                 for category in categories:
                     cat_data = month_data[month_data['Movement Category'] == category]
                     
@@ -475,12 +456,38 @@ class LogisticsDashboardUpdater:
                             'Total Grand Cost': total_grand_cost,
                             'Avg Cost per Bird': avg_cost_per_bird if pd.notna(avg_cost_per_bird) else 0,
                             'Avg Cost per kg': avg_cost_per_kg if pd.notna(avg_cost_per_kg) else 0,
+                            'Is_Month_Total': False
                         })
+                
+                # Add MONTH TOTAL row after each month's categories
+                if not month_data.empty:
+                    month_total_trips = len(month_data)
+                    month_total_birds = month_data['Number of Birds'].sum()
+                    month_total_weight = month_data['Total Weight (kg)'].sum()
+                    month_total_logistics_cost = month_data['Logistics Cost'].sum()
+                    month_total_grand_cost = month_data['Grand Total Cost'].sum()
+                    
+                    # Calculate MONTHLY AGGREGATE AVERAGES across all categories
+                    month_avg_cost_per_bird = month_total_grand_cost / month_total_birds if month_total_birds > 0 else 0
+                    month_avg_cost_per_kg = month_total_grand_cost / month_total_weight if month_total_weight > 0 else 0
+                    
+                    monthly_data.append({
+                        'Month': month,
+                        'Category': 'MONTH TOTAL',
+                        'Trips': month_total_trips,
+                        'Total Birds': month_total_birds,
+                        'Total Weight (kg)': month_total_weight,
+                        'Total Logistics Cost': month_total_logistics_cost,
+                        'Total Grand Cost': month_total_grand_cost,
+                        'Avg Cost per Bird': month_avg_cost_per_bird,
+                        'Avg Cost per kg': month_avg_cost_per_kg,
+                        'Is_Month_Total': True
+                    })
             
             # Convert to DataFrame for easier manipulation
             monthly_df = pd.DataFrame(monthly_data)
             
-            # Calculate month-over-month percentage changes for Avg Cost/kg only
+            # Calculate month-over-month percentage changes for Avg Cost/kg only (exclude totals)
             if not monthly_df.empty:
                 # Add percentage change column for Cost/kg
                 monthly_df['Cost_kg % Change'] = 0.0
@@ -488,9 +495,9 @@ class LogisticsDashboardUpdater:
                 # Sort by category and month for proper comparison
                 monthly_df = monthly_df.sort_values(['Category', 'Month'])
                 
-                # Calculate Cost/kg percentage changes for each category
-                for category in monthly_df['Category'].unique():
-                    cat_mask = monthly_df['Category'] == category
+                # Calculate Cost/kg percentage changes for each category (skip month totals)
+                for category in monthly_df[monthly_df['Is_Month_Total'] == False]['Category'].unique():
+                    cat_mask = (monthly_df['Category'] == category) & (monthly_df['Is_Month_Total'] == False)
                     cat_data = monthly_df[cat_mask].copy().sort_values('Month')
                     
                     if len(cat_data) > 1:
@@ -506,8 +513,10 @@ class LogisticsDashboardUpdater:
                                 cost_kg_change = ((curr_cost_kg - prev_cost_kg) / prev_cost_kg) * 100
                                 monthly_df.loc[current_idx, 'Cost_kg % Change'] = cost_kg_change
                 
-                # Sort by month for display
-                monthly_df = monthly_df.sort_values(['Month', 'Category'])
+                # Sort by month first, then put MONTH TOTAL at the end of each month
+                monthly_df['Sort_Order'] = monthly_df.apply(lambda x: (x['Month'], 1 if x['Is_Month_Total'] else 0, x['Category']), axis=1)
+                monthly_df = monthly_df.sort_values('Sort_Order')
+                monthly_df = monthly_df.drop('Sort_Order', axis=1)
             
             return monthly_df
             
@@ -515,54 +524,6 @@ class LogisticsDashboardUpdater:
             print(f"Error calculating monthly breakdown: {e}")
             return pd.DataFrame()
     
-    def apply_batch_formatting(self, sheet, format_requests: List[dict]):
-        """Apply multiple formatting requests efficiently in batches."""
-        try:
-            if not format_requests:
-                return
-            
-            # Use Google Sheets batchUpdate API for efficiency
-            requests = []
-            for req in format_requests:
-                range_name = req['range']
-                format_dict = req['format']
-                
-                # Convert range to A1 notation if needed
-                try:
-                    # Parse range (assumes format like "A1:C5" or "A1")
-                    if ':' in range_name:
-                        start_cell, end_cell = range_name.split(':')
-                    else:
-                        start_cell = end_cell = range_name
-                    
-                    requests.append({
-                        "repeatCell": {
-                            "range": {
-                                "sheetId": sheet.id,
-                                "startRowIndex": int(start_cell[1:]) - 1,
-                                "startColumnIndex": ord(start_cell[0]) - ord('A'),
-                                "endRowIndex": int(end_cell[1:]) if end_cell[1:] else int(start_cell[1:]),
-                                "endColumnIndex": (ord(end_cell[0]) - ord('A') + 1) if len(end_cell) > 0 else (ord(start_cell[0]) - ord('A') + 1)
-                            },
-                            "cell": {
-                                "userEnteredFormat": format_dict
-                            },
-                            "fields": "userEnteredFormat"
-                        }
-                    })
-                except:
-                    # Fallback to individual formatting if parsing fails
-                    continue
-            
-            if requests:
-                # Execute batch request
-                self.execute_with_retry(
-                    sheet.batch_update,
-                    {"requests": requests[:50]}  # Limit to 50 requests per batch
-                )
-                
-        except Exception as e:
-            print(f"⚠ Warning: Batch formatting partially failed: {e}")
     
     def format_cell_range(self, range_name: str, bg_color: dict, text_color: dict = None, 
                          bold: bool = False, font_size: int = 10, format_type: str = None, sheet=None):
@@ -647,7 +608,10 @@ class LogisticsDashboardUpdater:
             self._format_queue = []
     
     def calculate_cash_flow_timeline(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate running balance over time (cash flow timeline)."""
+        """Calculate running balance over time (cash flow timeline).
+        
+        Note: Excludes fuel costs as logistics manager doesn't pay fuel from allocated funds.
+        """
         try:
             # Sort by date to get chronological order
             df_sorted = df.sort_values('Date').copy()
@@ -669,15 +633,19 @@ class LogisticsDashboardUpdater:
                         'Running Balance': running_balance
                     })
                 
-                # Deduct grand total cost when expenses occur
-                if row['Grand Total Cost'] > 0:
-                    running_balance -= row['Grand Total Cost']
+                # Deduct only logistics cost + miscellaneous cost (EXCLUDE fuel cost)
+                logistics_cost = row.get('Logistics Cost', 0)
+                misc_cost = row.get('Miscellaneous Cost', 0)
+                actual_expense = logistics_cost + misc_cost
+                
+                if actual_expense > 0:
+                    running_balance -= actual_expense
                     cash_flow_data.append({
                         'Date': row['Date'].strftime('%Y-%m-%d'),
                         'Transaction Type': 'Expense',
                         'From': row['From'],
                         'To': row['To'],
-                        'Amount': -row['Grand Total Cost'],  # Negative for expenses
+                        'Amount': -actual_expense,  # Negative for expenses
                         'Running Balance': running_balance
                     })
             
@@ -765,7 +733,7 @@ class LogisticsDashboardUpdater:
                 ['Average Grand Total per kg', f"₦{overall_metrics.get('avg_grand_total_per_kg', 0):,.2f}", "Overall average cost per kg (all operations)"],
                 ['Average Fuel Cost', f"₦{overall_metrics.get('avg_fuel_cost', 0):,.2f}", "Average fuel cost per trip"],
                 ['Third Party Trip Percentage', f"{overall_metrics.get('third_party_percentage', 0):.1f}%", "Percentage of trips using third party transport"],
-                ['Current Running Balance', f"₦{overall_metrics.get('current_running_balance', 0):,.2f}", "Current cash position after all transactions"],
+                ['Current Running Balance', f"₦{overall_metrics.get('current_running_balance', 0):,.2f}", "Current cash position after all transactions (excludes fuel costs)"],
             ]
             
             kpi_start_row = current_row
@@ -855,18 +823,29 @@ class LogisticsDashboardUpdater:
                             current_month = row_data[0]
                             month_color_index = (month_color_index + 1) % 4
                         
-                        # Apply month-based coloring to all rows
                         row_num = monthly_start_row + i
-                        self.format_cell_range(f'A{row_num}:J{row_num}', 
-                                             month_colors[month_color_index], 
-                                             sheet=self.dashboard_sheet)
+                        row_data_dict = monthly_breakdown.iloc[i]
+                        
+                        # Special formatting for MONTH TOTAL rows
+                        if row_data_dict.get('Is_Month_Total', False) or 'MONTH TOTAL' in str(row_data[1]):
+                            # Bold formatting with darker background for monthly totals
+                            self.format_cell_range(f'A{row_num}:J{row_num}', 
+                                                 {'red': 0.85, 'green': 0.92, 'blue': 0.95},  # Darker blue for totals
+                                                 bold=True, 
+                                                 sheet=self.dashboard_sheet)
+                        else:
+                            # Apply regular month-based coloring to category rows
+                            self.format_cell_range(f'A{row_num}:J{row_num}', 
+                                                 month_colors[month_color_index], 
+                                                 sheet=self.dashboard_sheet)
                         
                         # Color Cost/kg % change (red for increase, green for decrease - unit costs should go down)
-                        row_data_dict = monthly_breakdown.iloc[i]
-                        if row_data_dict['Cost_kg % Change'] > 0:
-                            self.format_cell_range(f'I{row_num}', {'red': 0.98, 'green': 0.85, 'blue': 0.85}, sheet=self.dashboard_sheet)  # Red for cost increase
-                        elif row_data_dict['Cost_kg % Change'] < 0:
-                            self.format_cell_range(f'I{row_num}', {'red': 0.85, 'green': 0.95, 'blue': 0.85}, sheet=self.dashboard_sheet)  # Green for cost decrease
+                        # Skip percentage changes for month totals since they don't apply
+                        if not (row_data_dict.get('Is_Month_Total', False) or 'MONTH TOTAL' in str(row_data[1])):
+                            if row_data_dict['Cost_kg % Change'] > 0:
+                                self.format_cell_range(f'I{row_num}', {'red': 0.98, 'green': 0.85, 'blue': 0.85}, sheet=self.dashboard_sheet)  # Red for cost increase
+                            elif row_data_dict['Cost_kg % Change'] < 0:
+                                self.format_cell_range(f'I{row_num}', {'red': 0.85, 'green': 0.95, 'blue': 0.85}, sheet=self.dashboard_sheet)  # Green for cost decrease
             
             # Apply all formatting in batch and auto-resize columns
             print("🎨 Applying final formatting and auto-sizing...")
@@ -876,55 +855,6 @@ class LogisticsDashboardUpdater:
         except Exception as e:
             print(f"✗ Error updating main dashboard: {e}")
     
-    def update_monthly_breakdown_sheet_REMOVED(self, monthly_breakdown: pd.DataFrame):
-        """Update the monthly breakdown sheet."""
-        try:
-            # Clear existing content
-            self.monthly_breakdown_sheet.clear()
-            
-            current_row = 1
-            
-            # Title
-            self.monthly_breakdown_sheet.update([['MONTHLY BREAKDOWN BY MOVEMENT CATEGORY']], f'A{current_row}')
-            self.format_cell_range(f'A{current_row}:I{current_row}', 
-                                 self.colors['header'], bold=True, font_size=16)
-            current_row += 2
-            
-            if not monthly_breakdown.empty:
-                # Monthly breakdown headers
-                monthly_headers = [['Month', 'Category', 'Trips', 'Total Birds', 'Total Weight (kg)', 
-                                 'Total Logistics Cost', 'Total Grand Cost', 'Avg Cost/Bird', 'Avg Cost/kg']]
-                self.monthly_breakdown_sheet.update(monthly_headers, f'A{current_row}:I{current_row}')
-                self.format_cell_range(f'A{current_row}:I{current_row}', 
-                                     self.colors['primary'], {'red': 1, 'green': 1, 'blue': 1}, 
-                                     bold=True)
-                current_row += 1
-                
-                # Monthly breakdown data
-                monthly_start_row = current_row
-                monthly_data = []
-                for _, row in monthly_breakdown.iterrows():
-                    monthly_data.append([
-                        row['Month'],
-                        row['Category'],
-                        int(row['Trips']),
-                        f"{row['Total Birds']:,.0f}",
-                        f"{row['Total Weight (kg)']:,.1f}",
-                        f"₦{row['Total Logistics Cost']:,.2f}",
-                        f"₦{row['Total Grand Cost']:,.2f}",
-                        f"₦{row['Avg Cost per Bird']:,.2f}",
-                        f"₦{row['Avg Cost per kg']:,.2f}"
-                    ])
-                
-                if monthly_data:
-                    self.monthly_breakdown_sheet.update(monthly_data, 
-                                                      f'A{current_row}:I{current_row + len(monthly_data) - 1}')
-                    
-                    # Skip individual row formatting to minimize API calls
-                    pass
-                        
-        except Exception as e:
-            print(f"✗ Error updating monthly breakdown sheet: {e}")
     
     def update_cash_flow_sheet(self, cash_flow_timeline: pd.DataFrame):
         """Update the cash flow timeline sheet - optimized."""
