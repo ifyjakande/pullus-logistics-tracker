@@ -1016,8 +1016,6 @@ class LogisticsDashboardUpdater:
             print(f"📈 Processed {len(df)} records")
             if len(df) > 0:
                 print(f"📅 Data processing completed successfully")
-            print("🎨 Beautiful formatting applied")
-            print("💡 All calculations use Grand Total Cost (Logistics + Fuel + Misc)")
             
             return True
             
@@ -1040,9 +1038,5 @@ if __name__ == "__main__":
         print(f"\n✨ Results written to 2 sheets:")
         print(f"   📊 '{updater.new_sheet_name}' - KPIs & Monthly Breakdown")
         print(f"   💰 '{updater.cash_flow_sheet_name}' - Running Balance Timeline")
-        print("\n📋 Next steps:")
-        print("1. Manually delete columns N-S from 'Logistics Data' sheet")
-        print("2. Run this script regularly to refresh all dashboard sheets")
-        print("3. Check both sheets for comprehensive logistics insights! 🎉")
     else:
         print("\n❌ Update failed. Please check the error messages above.")
