@@ -66,21 +66,25 @@ class LogisticsDashboardUpdater:
             ]
             
             # Handle both file path and JSON string from environment
-            if os.path.isfile(self.credentials_path):
-                creds = Credentials.from_service_account_file(
-                    self.credentials_path, 
-                    scopes=scopes
-                )
-            else:
-                # Try to parse as JSON string (for GitHub Actions secrets)
+            service_account_env = os.getenv('GOOGLE_SERVICE_ACCOUNT')
+            if service_account_env:
+                # Use environment variable (GitHub Actions)
                 try:
-                    service_account_info = json.loads(os.getenv('GOOGLE_SERVICE_ACCOUNT', '{}'))
+                    service_account_info = json.loads(service_account_env)
                     creds = Credentials.from_service_account_info(
                         service_account_info, 
                         scopes=scopes
                     )
                 except json.JSONDecodeError:
-                    raise ValueError("Invalid service account configuration")
+                    raise ValueError("Invalid service account JSON in environment variable")
+            elif os.path.isfile(self.credentials_path):
+                # Use local file
+                creds = Credentials.from_service_account_file(
+                    self.credentials_path, 
+                    scopes=scopes
+                )
+            else:
+                raise ValueError("No valid service account configuration found")
             
             self.gc = gspread.authorize(creds)
             self.spreadsheet = self.gc.open_by_key(self.spreadsheet_id)

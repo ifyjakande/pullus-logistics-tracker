@@ -25,18 +25,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install gspread google-auth pandas
         
-    - name: Create service account file
-      env:
-        GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
-      run: |
-        echo "$GOOGLE_SERVICE_ACCOUNT" > service_account.json
-        
     - name: Update dashboard
       env:
+        GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
       run: |
         python logistics_dashboard_updater.py
         
-    - name: Clean up
-      run: |
-        rm -f service_account.json
