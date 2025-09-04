@@ -829,8 +829,8 @@ class LogisticsDashboardUpdater:
             for i, row_data in enumerate(kpi_data):
                 row = kpi_start_row + i
                 
-                # Only color current running balance - skip all other formatting
-                if 'Current Running Balance' in row_data[0]:
+                # Only color current running balance - be more explicit to avoid any confusion
+                if row_data[0] == 'Current Running Balance':
                     running_balance_value = overall_metrics.get('current_running_balance', 0)
                     if running_balance_value > 0:
                         self.format_cell_range(f'B{row}', self.colors['positive'], bold=True)
@@ -1021,14 +1021,15 @@ class LogisticsDashboardUpdater:
                         running_balance = cash_flow_timeline.iloc[i]['Running Balance']
                         amount = cash_flow_timeline.iloc[i]['Amount']
                         
-                        # Only color fund additions and running balances
+                        # Only color fund additions (NOT expenses)
                         if transaction_type == 'Fund Addition':
                             self.format_cell_range(f'A{row}:F{row}', self.colors['positive'], sheet=self.cash_flow_sheet)
+                        # Explicitly do NOT color expense rows - leave them with default formatting
                         
-                        # Always color the running balance based on positive/negative
+                        # Color the running balance column based on positive/negative
                         if running_balance < 0:
                             self.format_cell_range(f'F{row}', self.colors['negative'], bold=True, sheet=self.cash_flow_sheet)
-                        elif running_balance > 0 and i == len(cash_flow_data) - 1:  # Highlight final balance
+                        elif running_balance > 0 and i == len(cash_flow_data) - 1:  # Only highlight the very final balance
                             self.format_cell_range(f'F{row}', self.colors['positive'], bold=True, sheet=self.cash_flow_sheet)
             
             # Apply all formatting and auto-resize columns
