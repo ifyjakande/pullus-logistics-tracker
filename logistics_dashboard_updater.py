@@ -23,6 +23,7 @@ import os
 import json
 from typing import Dict, List, Any, Tuple
 from difflib import SequenceMatcher
+import pytz
 
 class LogisticsDashboardUpdater:
     def __init__(self, credentials_path: str = None, spreadsheet_id: str = None):
@@ -48,6 +49,7 @@ class LogisticsDashboardUpdater:
             'positive': {'red': 0.85, 'green': 0.95, 'blue': 0.85},   # Light green
             'negative': {'red': 0.98, 'green': 0.85, 'blue': 0.85},   # Light red
             'primary': {'red': 0.1, 'green': 0.46, 'blue': 0.82},     # Primary blue
+            'timestamp': {'red': 0.96, 'green': 0.94, 'blue': 0.98},  # Subtle lavender
         }
         
         # Rate limiting configuration
@@ -159,6 +161,26 @@ class LogisticsDashboardUpdater:
                     raise
         return None
     
+    def get_last_updated_timestamp(self) -> str:
+        """Get current timestamp in WAT timezone with 12-hour format."""
+        try:
+            # Create WAT timezone (UTC+1)
+            wat_timezone = pytz.timezone('Africa/Lagos')  # Lagos is in WAT
+            
+            # Get current time in WAT
+            wat_time = datetime.now(wat_timezone)
+            
+            # Format as 12-hour format with AM/PM
+            formatted_time = wat_time.strftime("%B %d, %Y at %I:%M %p WAT")
+            
+            return f"Last Updated: {formatted_time}"
+            
+        except Exception as e:
+            # Fallback to UTC if timezone fails
+            utc_time = datetime.utcnow()
+            wat_time = utc_time + timedelta(hours=1)  # Manual WAT conversion
+            formatted_time = wat_time.strftime("%B %d, %Y at %I:%M %p WAT")
+            return f"Last Updated: {formatted_time}"
     
     def normalize_location(self, location: str) -> str:
         """Normalize location names for consistent comparison."""
@@ -746,6 +768,20 @@ class LogisticsDashboardUpdater:
             # Only format essential elements - title
             self.format_cell_range(f'A{current_row}:H{current_row}', 
                                  self.colors['header'], bold=True, font_size=16)
+            current_row += 1
+            
+            # Add timestamp with subtle formatting
+            timestamp_text = self.get_last_updated_timestamp()
+            self.execute_with_retry(
+                self.dashboard_sheet.update,
+                [[timestamp_text]],
+                f'A{current_row}'
+            )
+            self.execute_with_retry(self.dashboard_sheet.merge_cells, f'A{current_row}:H{current_row}')
+            self.format_cell_range(f'A{current_row}:H{current_row}', 
+                                 self.colors['timestamp'], 
+                                 {'red': 0.4, 'green': 0.4, 'blue': 0.6},  # Soft purple text
+                                 font_size=9)
             current_row += 2
             
             # KPI Section - combine header and data in one update
@@ -926,6 +962,23 @@ class LogisticsDashboardUpdater:
                 print(f"⚠ Warning: Could not merge title cells (may already be merged): {merge_error}")
             self.format_cell_range(f'A{current_row}:F{current_row}', 
                                  self.colors['header'], bold=True, font_size=16, sheet=self.cash_flow_sheet)
+            current_row += 1
+            
+            # Add timestamp with subtle formatting
+            timestamp_text = self.get_last_updated_timestamp()
+            self.execute_with_retry(
+                self.cash_flow_sheet.update,
+                [[timestamp_text]],
+                f'A{current_row}'
+            )
+            try:
+                self.execute_with_retry(self.cash_flow_sheet.merge_cells, f'A{current_row}:F{current_row}')
+            except Exception:
+                pass  # Handle merge errors gracefully
+            self.format_cell_range(f'A{current_row}:F{current_row}', 
+                                 self.colors['timestamp'], 
+                                 {'red': 0.4, 'green': 0.4, 'blue': 0.6},  # Soft purple text
+                                 font_size=9, sheet=self.cash_flow_sheet)
             current_row += 2
             
             if not cash_flow_timeline.empty:
