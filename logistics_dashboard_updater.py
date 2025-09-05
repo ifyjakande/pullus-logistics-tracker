@@ -390,23 +390,30 @@ class LogisticsDashboardUpdater:
             # Define major logistics hubs
             major_hubs = ['ABUJA', 'KADUNA', 'LAGOS', 'KANO', 'IBADAN']
             
-            # Abuja-specific routes (consolidated)
-            if from_loc_std == 'ABUJA' and to_loc_std == 'ABUJA':
-                return 'Supply - Abuja Internal'
-            elif from_loc_std != 'ABUJA' and to_loc_std == 'ABUJA':
-                return 'Supply - Others to Abuja'
-            elif from_loc_std == 'ABUJA' and to_loc_std != 'ABUJA':
-                return 'Supply - Abuja to Others'
+            # Handle specific origin cities FIRST (to avoid conflicts with destination-based rules)
+            # Abuja origin routes
+            if from_loc_std == 'ABUJA':
+                if to_loc_std == 'ABUJA':
+                    return 'Supply - Abuja Internal'
+                else:
+                    return 'Supply - Abuja to Others'
             
-            # Kaduna-specific routes (consolidated)
-            elif from_loc_std == 'KADUNA' and to_loc_std != 'KADUNA':
-                return 'Supply - Kaduna to Others'
-            elif from_loc_std != 'KADUNA' and to_loc_std == 'KADUNA':
-                return 'Supply - Others to Kaduna'
+            # Kaduna origin routes  
+            elif from_loc_std == 'KADUNA':
+                if to_loc_std == 'KADUNA':
+                    return 'Supply - Kaduna Internal'
+                else:
+                    return 'Supply - Kaduna to Others'
             
-            # Other major hub routes (consolidated by origin city)
+            # Other major hub origin routes
             elif from_loc_std in major_hubs:
                 return f'Supply - {from_loc_std} to Others'
+            
+            # Handle destination-based rules ONLY if origin is not a major hub
+            elif to_loc_std == 'ABUJA':
+                return 'Supply - Others to Abuja'
+            elif to_loc_std == 'KADUNA':
+                return 'Supply - Others to Kaduna'
             elif to_loc_std in major_hubs:
                 return f'Supply - Others to {to_loc_std}'
             
