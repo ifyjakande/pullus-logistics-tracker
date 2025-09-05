@@ -387,39 +387,12 @@ class LogisticsDashboardUpdater:
                 return f'Offtake to {to_loc_std}'
         
         elif logistics_type == 'SUPPLY':
-            # Define major logistics hubs
-            major_hubs = ['ABUJA', 'KADUNA', 'LAGOS', 'KANO', 'IBADAN']
-            
-            # Handle specific origin cities FIRST (to avoid conflicts with destination-based rules)
-            # Abuja origin routes
-            if from_loc_std == 'ABUJA':
-                if to_loc_std == 'ABUJA':
-                    return 'Supply - Abuja Internal'
-                else:
-                    return 'Supply - Abuja to Others'
-            
-            # Kaduna origin routes  
-            elif from_loc_std == 'KADUNA':
-                if to_loc_std == 'KADUNA':
-                    return 'Supply - Kaduna Internal'
-                else:
-                    return 'Supply - Kaduna to Others'
-            
-            # Other major hub origin routes
-            elif from_loc_std in major_hubs:
-                return f'Supply - {from_loc_std} to Others'
-            
-            # Handle destination-based rules ONLY if origin is not a major hub
-            elif to_loc_std == 'ABUJA':
-                return 'Supply - Others to Abuja'
-            elif to_loc_std == 'KADUNA':
-                return 'Supply - Others to Kaduna'
-            elif to_loc_std in major_hubs:
-                return f'Supply - Others to {to_loc_std}'
-            
-            # Generic routes for non-major hubs
+            # Check if it's an internal route (same origin and destination)
+            if from_loc_std == to_loc_std:
+                return f'Supply - {from_loc_std} Internal'
             else:
-                return 'Supply - Other Routes'
+                # Create specific route-based category
+                return f'Supply - {from_loc_std} to {to_loc_std}'
         
         return 'Uncategorized'
     
