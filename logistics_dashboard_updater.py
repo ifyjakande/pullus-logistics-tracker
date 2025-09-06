@@ -17,12 +17,10 @@ from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime, timedelta
 import time
-import random
 import re
 import os
 import json
-from typing import Dict, List, Any, Tuple
-from difflib import SequenceMatcher
+from typing import Dict
 import pytz
 
 class LogisticsDashboardUpdater:
@@ -149,7 +147,7 @@ class LogisticsDashboardUpdater:
             except Exception as e:
                 if '429' in str(e) or 'quota' in str(e).lower() or 'rate' in str(e).lower():
                     if attempt < self.max_retries - 1:
-                        delay = min(self.base_delay * (2 ** attempt) + random.uniform(0, 1), self.max_delay)
+                        delay = min(self.base_delay * (2 ** attempt) + 0.5, self.max_delay)
                         print(f"🔄 Rate limit hit (attempt {attempt + 1}/{self.max_retries}), waiting {delay:.1f}s...")
                         time.sleep(delay)
                         continue
@@ -193,9 +191,76 @@ class LogisticsDashboardUpdater:
         normalized = re.sub(r'\s+', ' ', normalized).strip()
         return normalized
     
-    def similarity(self, a: str, b: str) -> float:
-        """Calculate similarity between two strings using SequenceMatcher."""
-        return SequenceMatcher(None, a.upper(), b.upper()).ratio()
+    def get_abuja_metropolitan_areas(self) -> dict:
+        """Get comprehensive mapping of Abuja metropolitan area locations including FCT and Nasarawa border areas."""
+        abuja_metro_areas = {
+            # FCT Area Councils and Districts
+            'fct_areas': {
+                # AMAC (Abuja Municipal Area Council) - Main districts
+                'MAITAMA', 'GARKI', 'ASOKORO', 'WUSE', 'WUYE', 'UTAKO', 'GWARINPA', 
+                'LOKOGOMA', 'JAHI', 'JABI', 'GUDU', 'GADUWA', 'AGUNGI', 'GUZAPE',
+                'KATAMPE', 'MBORA', 'KADO', 'LIFE CAMP', 'KARMO', 'JUKWOYI',
+                'KUBWA', 'LUGBE', 'KUJE TOWN', 'GWAGWALADA TOWN', 'BWARI TOWN',
+                'KWALI TOWN', 'ABAJI TOWN',
+                # General FCT references
+                'FCT', 'FEDERAL CAPITAL TERRITORY', 'ABUJA', 'AMAC'
+            },
+            
+            # Nasarawa State border areas (Abuja suburbs/satellite towns)
+            'nasarawa_metro_areas': {
+                # Karu LGA - Major Abuja satellite towns
+                'KARU', 'NEW KARU', 'MARARABA', 'MARABA', 'NYANYA', 'NEW NYANYA', 
+                'KARSHI', 'KCENYI', 'GITATA', 'GURKU', 'ONE MAN VILLAGE',
+                # Toto LGA areas close to FCT
+                'TOTO', 'GADABUKE',
+                # Keffi LGA 
+                'KEFFI',
+                # Other satellite areas specifically close to Abuja
+                'MASAKA', 'NASARAWA TOWN', 'NASARAWA'
+                # Note: 'NASARAWA' in logistics data typically refers to Nasarawa town, not the state
+            }
+        }
+        
+        # Create a unified set of all Abuja metropolitan areas
+        all_metro_areas = set()
+        all_metro_areas.update(abuja_metro_areas['fct_areas'])
+        all_metro_areas.update(abuja_metro_areas['nasarawa_metro_areas'])
+        
+        return {
+            'fct_areas': abuja_metro_areas['fct_areas'],
+            'nasarawa_metro_areas': abuja_metro_areas['nasarawa_metro_areas'],
+            'all_metro_areas': all_metro_areas
+        }
+    
+    def is_abuja_metropolitan_area(self, location: str) -> tuple:
+        """Check if a location is in the Abuja metropolitan area and return classification."""
+        if not location or pd.isna(location):
+            return False, None
+            
+        normalized_location = self.normalize_location(location)
+        metro_areas = self.get_abuja_metropolitan_areas()
+        
+        # Special rule: ANY mention of "NASARAWA" should be treated as Abuja metro area
+        if 'NASARAWA' in normalized_location:
+            return True, 'NASARAWA_METRO'
+        
+        # Check for exact matches first (more precise)
+        for area in metro_areas['all_metro_areas']:
+            if normalized_location == area:
+                if area in metro_areas['fct_areas']:
+                    return True, 'FCT'
+                elif area in metro_areas['nasarawa_metro_areas']:
+                    return True, 'NASARAWA_METRO'
+        
+        # Then check for substring matches (less precise, but catch variations)
+        for area in metro_areas['all_metro_areas']:
+            if area in normalized_location and len(area) > 3:  # Avoid matching very short strings
+                if area in metro_areas['fct_areas']:
+                    return True, 'FCT'
+                elif area in metro_areas['nasarawa_metro_areas']:
+                    return True, 'NASARAWA_METRO'
+        
+        return False, None
     
     def create_location_mapping(self, df: pd.DataFrame) -> dict:
         """Create a mapping of location variations to standardized names using pattern matching."""
@@ -217,8 +282,8 @@ class LogisticsDashboardUpdater:
             location = location.upper().strip()
             
             # Handle specific known patterns first
-            if 'MARABA' in location:
-                return 'MARABA'  # Group all MARABA variations together
+            if 'MARABA' in location or 'MARARABA' in location:
+                return 'MARARABA'  # Standardize to correct spelling
             elif 'U/BARDE' in location or 'UBARDE' in location:
                 return 'U/BARDE'  # Group U/BARDE variations
             elif 'MANDO' in location and 'KUDENDE' in location:
@@ -233,8 +298,8 @@ class LogisticsDashboardUpdater:
                     return 'JOS'
                 elif 'RIDO' in location:
                     return 'RIDO'
-                elif 'MARABA' in location:
-                    return 'MARABA'
+                elif 'MARABA' in location or 'MARARABA' in location:
+                    return 'MARARABA'
                 else:
                     return location.replace('PLETHORA', '').strip()
             else:
@@ -373,26 +438,53 @@ class LogisticsDashboardUpdater:
             print(f"✗ Error reading logistics data: {e}")
             return pd.DataFrame()
     
+    def format_location_for_display(self, location: str) -> str:
+        """Format location name for display with proper capitalization."""
+        if not location:
+            return location
+        
+        # Handle special cases first
+        if location == 'COLD ROOM':
+            return 'Cold Room'
+        elif location == 'FCT' or location == 'FEDERAL CAPITAL TERRITORY':
+            return 'FCT'
+        elif location == 'AMAC':
+            return 'AMAC'
+        else:
+            # Convert to title case for regular locations
+            return location.title()
+    
     def categorize_movement(self, row, location_mapping: dict) -> str:
-        """Categorize movements based on logistics type and standardized locations."""
+        """Categorize movements based on logistics type and standardized locations with Abuja internal detection."""
         logistics_type = row['Logistics_Type_Normalized']
         from_loc_std = self.standardize_location(row['From'], location_mapping)
         to_loc_std = self.standardize_location(row['To'], location_mapping)
+        
+        # Check if both locations are in Abuja metropolitan area
+        from_is_abuja_metro, _ = self.is_abuja_metropolitan_area(from_loc_std)
+        to_is_abuja_metro, _ = self.is_abuja_metropolitan_area(to_loc_std)
+        
+        # Format locations for display
+        from_display = self.format_location_for_display(from_loc_std)
+        to_display = self.format_location_for_display(to_loc_std)
         
         if logistics_type == 'OFFTAKE':
             if 'COLD ROOM' in to_loc_std:
                 return 'Offtake to Cold Room'
             else:
                 # Generate dynamic category based on destination
-                return f'Offtake to {to_loc_std}'
+                return f'Offtake to {to_display}'
         
         elif logistics_type == 'SUPPLY':
-            # Check if it's an internal route (same origin and destination)
-            if from_loc_std == to_loc_std:
-                return f'Supply - {from_loc_std} Internal'
+            # Check if both locations are in Abuja metropolitan area (FCT + Nasarawa suburbs)
+            if from_is_abuja_metro and to_is_abuja_metro:
+                return 'Abuja Internal Supply'
+            # Check if it's an internal route (same standardized location)
+            elif from_loc_std == to_loc_std:
+                return f'Supply - {from_display} Internal'
             else:
                 # Create specific route-based category
-                return f'Supply - {from_loc_std} to {to_loc_std}'
+                return f'Supply - {from_display} to {to_display}'
         
         return 'Uncategorized'
     
@@ -403,7 +495,8 @@ class LogisticsDashboardUpdater:
             df_with_data = df[df['Grand Total Cost'] > 0]
             df_offtake = df_with_data[df_with_data['Logistics_Type_Normalized'] == 'OFFTAKE']
             df_supply = df_with_data[df_with_data['Logistics_Type_Normalized'] == 'SUPPLY']
-            df_abuja_supply = df_supply[df_supply['Is Abuja'].str.upper() == 'YES']
+            # Use our new intelligent Abuja detection instead of manual "Is Abuja" flag
+            df_abuja_supply = df_supply[df_supply['Movement Category'] == 'Abuja Internal Supply']
             
             metrics = {
                 # Bird-based metrics (using AGGREGATE METHOD - industry standard)
@@ -999,7 +1092,6 @@ class LogisticsDashboardUpdater:
                         row = cash_flow_start_row + i
                         transaction_type = cash_flow_timeline.iloc[i]['Transaction Type']
                         running_balance = cash_flow_timeline.iloc[i]['Running Balance']
-                        amount = cash_flow_timeline.iloc[i]['Amount']
                         
                         # Only color fund additions (NOT expenses)
                         if transaction_type == 'Fund Addition':
