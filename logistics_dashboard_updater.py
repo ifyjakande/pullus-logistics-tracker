@@ -826,14 +826,27 @@ class LogisticsDashboardUpdater:
             self.execute_with_retry(self.dashboard_sheet.clear)
             
             # Additional comprehensive clear to ensure no residual formatting remains
-            # Clear a large range to handle cases where previous data extended further
+            # Clear formatting from a large range to handle cases where previous data extended further
             try:
-                self.execute_with_retry(
-                    self.dashboard_sheet.batch_clear,
-                    ["A1:Z200"]  # Clear first 200 rows completely
-                )
+                body = {
+                    "requests": [
+                        {
+                            "updateCells": {
+                                "range": {
+                                    "sheetId": self.dashboard_sheet.id,
+                                    "startRowIndex": 0,
+                                    "endRowIndex": 200,      # Clear first 200 rows
+                                    "startColumnIndex": 0,
+                                    "endColumnIndex": 26     # Clear first 26 columns (A-Z)
+                                },
+                                "fields": "userEnteredFormat"
+                            }
+                        }
+                    ]
+                }
+                self.execute_with_retry(self.spreadsheet.batch_update, body)
             except Exception:
-                # Fallback: clear row by row if batch clear fails
+                # Fallback: clear row by row if batch update fails
                 pass
             
             # Initialize format queue
@@ -1029,14 +1042,27 @@ class LogisticsDashboardUpdater:
             self.execute_with_retry(self.cash_flow_sheet.clear)
             
             # Additional comprehensive clear to ensure no residual formatting remains
-            # Clear a large range to handle cases where previous data extended further
+            # Clear formatting from a large range to handle cases where previous data extended further
             try:
-                self.execute_with_retry(
-                    self.cash_flow_sheet.batch_clear,
-                    ["A1:Z200"]  # Clear first 200 rows completely
-                )
+                body = {
+                    "requests": [
+                        {
+                            "updateCells": {
+                                "range": {
+                                    "sheetId": self.cash_flow_sheet.id,
+                                    "startRowIndex": 0,
+                                    "endRowIndex": 200,      # Clear first 200 rows
+                                    "startColumnIndex": 0,
+                                    "endColumnIndex": 26     # Clear first 26 columns (A-Z)
+                                },
+                                "fields": "userEnteredFormat"
+                            }
+                        }
+                    ]
+                }
+                self.execute_with_retry(self.spreadsheet.batch_update, body)
             except Exception:
-                # Fallback: clear row by row if batch clear fails
+                # Fallback: clear row by row if batch update fails
                 pass
             
             # Initialize format queue for cash flow sheet
