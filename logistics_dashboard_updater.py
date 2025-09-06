@@ -833,11 +833,8 @@ class LogisticsDashboardUpdater:
                         {
                             "updateCells": {
                                 "range": {
-                                    "sheetId": self.dashboard_sheet.id,
-                                    "startRowIndex": 0,
-                                    "endRowIndex": 200,      # Clear first 200 rows
-                                    "startColumnIndex": 0,
-                                    "endColumnIndex": 26     # Clear first 26 columns (A-Z)
+                                    "sheetId": self.dashboard_sheet.id
+                                    # No row/column indexes = entire sheet (unbounded)
                                 },
                                 "fields": "userEnteredFormat"
                             }
@@ -1049,11 +1046,8 @@ class LogisticsDashboardUpdater:
                         {
                             "updateCells": {
                                 "range": {
-                                    "sheetId": self.cash_flow_sheet.id,
-                                    "startRowIndex": 0,
-                                    "endRowIndex": 200,      # Clear first 200 rows
-                                    "startColumnIndex": 0,
-                                    "endColumnIndex": 26     # Clear first 26 columns (A-Z)
+                                    "sheetId": self.cash_flow_sheet.id
+                                    # No row/column indexes = entire sheet (unbounded)
                                 },
                                 "fields": "userEnteredFormat"
                             }
