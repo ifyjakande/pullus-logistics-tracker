@@ -822,8 +822,19 @@ class LogisticsDashboardUpdater:
     def update_main_dashboard(self, df: pd.DataFrame, overall_metrics: dict):
         """Update the main dashboard sheet with KPIs - optimized for minimal API calls."""
         try:
-            # Clear existing content with retry
+            # Clear existing content AND formatting completely with retry
             self.execute_with_retry(self.dashboard_sheet.clear)
+            
+            # Additional comprehensive clear to ensure no residual formatting remains
+            # Clear a large range to handle cases where previous data extended further
+            try:
+                self.execute_with_retry(
+                    self.dashboard_sheet.batch_clear,
+                    ["A1:Z200"]  # Clear first 200 rows completely
+                )
+            except Exception:
+                # Fallback: clear row by row if batch clear fails
+                pass
             
             # Initialize format queue
             self._format_queue = []
@@ -1014,8 +1025,19 @@ class LogisticsDashboardUpdater:
     def update_cash_flow_sheet(self, cash_flow_timeline: pd.DataFrame):
         """Update the cash flow timeline sheet - optimized."""
         try:
-            # Clear existing content with retry
+            # Clear existing content AND formatting completely with retry
             self.execute_with_retry(self.cash_flow_sheet.clear)
+            
+            # Additional comprehensive clear to ensure no residual formatting remains
+            # Clear a large range to handle cases where previous data extended further
+            try:
+                self.execute_with_retry(
+                    self.cash_flow_sheet.batch_clear,
+                    ["A1:Z200"]  # Clear first 200 rows completely
+                )
+            except Exception:
+                # Fallback: clear row by row if batch clear fails
+                pass
             
             # Initialize format queue for cash flow sheet
             self._format_queue = []
