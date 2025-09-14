@@ -32,6 +32,7 @@ jobs:
       env:
         GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
+        CI: "true"
       run: |
         python check_changes.py > check_output.txt 2>&1
         if python check_changes.py | grep -q "NEEDS_UPDATE=true"; then
