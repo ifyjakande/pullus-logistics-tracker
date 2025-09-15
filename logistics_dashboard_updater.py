@@ -994,16 +994,16 @@ class LogisticsDashboardUpdater:
                         total_grand_cost = cat_data['Grand Total Cost'].sum()
 
                         # Calculate averages using AGGREGATE METHOD (industry standard) with filtering
-                        # FIX: Only include costs from trips that actually transported units for accurate per-unit calculations
-                        cat_bird_data = cat_data[cat_data['Number of Birds'] > 0]
-                        cat_total_bird_costs = cat_bird_data['Grand Total Cost'].sum() if len(cat_bird_data) > 0 else 0
+                        # FIX: Use allocated costs instead of raw Grand Total Cost for accurate per-unit calculations (follows metrics explainer)
+                        cat_bird_data = cat_data[cat_data['Whole_Chicken_Cost_per_Bird'] > 0]
+                        cat_total_allocated_bird_costs = (cat_bird_data['Whole_Chicken_Cost_per_Bird'] * cat_bird_data['Number of Birds']).sum() if len(cat_bird_data) > 0 else 0
                         cat_total_bird_count = cat_bird_data['Number of Birds'].sum() if len(cat_bird_data) > 0 else 0
-                        avg_cost_per_bird = cat_total_bird_costs / cat_total_bird_count if cat_total_bird_count > 0 else 0
+                        avg_cost_per_bird = cat_total_allocated_bird_costs / cat_total_bird_count if cat_total_bird_count > 0 else 0
 
-                        cat_crate_data = cat_data[cat_data['Number of Crates'] > 0]
-                        cat_total_crate_costs = cat_crate_data['Grand Total Cost'].sum() if len(cat_crate_data) > 0 else 0
+                        cat_crate_data = cat_data[cat_data['Egg_Cost_per_Crate'] > 0]
+                        cat_total_allocated_crate_costs = (cat_crate_data['Egg_Cost_per_Crate'] * cat_crate_data['Number of Crates']).sum() if len(cat_crate_data) > 0 else 0
                         cat_total_crate_count = cat_crate_data['Number of Crates'].sum() if len(cat_crate_data) > 0 else 0
-                        avg_cost_per_crate = cat_total_crate_costs / cat_total_crate_count if cat_total_crate_count > 0 else 0
+                        avg_cost_per_crate = cat_total_allocated_crate_costs / cat_total_crate_count if cat_total_crate_count > 0 else 0
 
                         cat_weight_data = cat_data[cat_data['Total Weight (kg)'] > 0]
                         cat_total_weight_costs = cat_weight_data['Grand Total Cost'].sum() if len(cat_weight_data) > 0 else 0
@@ -1012,28 +1012,28 @@ class LogisticsDashboardUpdater:
 
                         # Product-specific averages using AGGREGATE METHOD (GAAP compliant)
                         # Calculate total cost and weight for each product type, then divide
-                        gizzard_data = cat_data[cat_data['Gizzard Weight'] > 0]
-                        avg_gizzard_cost_per_kg = (gizzard_data['Grand Total Cost'].sum() / gizzard_data['Gizzard Weight'].sum()) if gizzard_data['Gizzard Weight'].sum() > 0 else 0
+                        gizzard_data = cat_data[cat_data['Gizzard_Cost_per_kg'] > 0]
+                        avg_gizzard_cost_per_kg = (gizzard_data['Gizzard_Cost_per_kg'] * gizzard_data['Gizzard Weight']).sum() / gizzard_data['Gizzard Weight'].sum() if gizzard_data['Gizzard Weight'].sum() > 0 else 0
 
-                        chicken_data = cat_data[cat_data['Whole Chicken Weight'] > 0]
-                        avg_chicken_cost_per_kg = (chicken_data['Grand Total Cost'].sum() / chicken_data['Whole Chicken Weight'].sum()) if chicken_data['Whole Chicken Weight'].sum() > 0 else 0
+                        chicken_data = cat_data[cat_data['Whole_Chicken_Cost_per_kg'] > 0]
+                        avg_chicken_cost_per_kg = (chicken_data['Whole_Chicken_Cost_per_kg'] * chicken_data['Whole Chicken Weight']).sum() / chicken_data['Whole Chicken Weight'].sum() if chicken_data['Whole Chicken Weight'].sum() > 0 else 0
                         avg_chicken_cost_per_bird = cat_data[cat_data['Whole_Chicken_Cost_per_Bird'] > 0]['Whole_Chicken_Cost_per_Bird'].mean() if len(cat_data[cat_data['Whole_Chicken_Cost_per_Bird'] > 0]) > 0 else 0
 
                         # Additional product-specific averages using AGGREGATE METHOD
-                        laps_data = cat_data[cat_data['Laps Weight'] > 0]
-                        avg_laps_cost_per_kg = (laps_data['Grand Total Cost'].sum() / laps_data['Laps Weight'].sum()) if laps_data['Laps Weight'].sum() > 0 else 0
+                        laps_data = cat_data[cat_data['Laps_Cost_per_kg'] > 0]
+                        avg_laps_cost_per_kg = (laps_data['Laps_Cost_per_kg'] * laps_data['Laps Weight']).sum() / laps_data['Laps Weight'].sum() if laps_data['Laps Weight'].sum() > 0 else 0
 
-                        breast_data = cat_data[cat_data['Breast Weight'] > 0]
-                        avg_breast_cost_per_kg = (breast_data['Grand Total Cost'].sum() / breast_data['Breast Weight'].sum()) if breast_data['Breast Weight'].sum() > 0 else 0
+                        breast_data = cat_data[cat_data['Breast_Cost_per_kg'] > 0]
+                        avg_breast_cost_per_kg = (breast_data['Breast_Cost_per_kg'] * breast_data['Breast Weight']).sum() / breast_data['Breast Weight'].sum() if breast_data['Breast Weight'].sum() > 0 else 0
 
-                        fillet_data = cat_data[cat_data['Fillet Weight'] > 0]
-                        avg_fillet_cost_per_kg = (fillet_data['Grand Total Cost'].sum() / fillet_data['Fillet Weight'].sum()) if fillet_data['Fillet Weight'].sum() > 0 else 0
+                        fillet_data = cat_data[cat_data['Fillet_Cost_per_kg'] > 0]
+                        avg_fillet_cost_per_kg = (fillet_data['Fillet_Cost_per_kg'] * fillet_data['Fillet Weight']).sum() / fillet_data['Fillet Weight'].sum() if fillet_data['Fillet Weight'].sum() > 0 else 0
 
-                        wings_data = cat_data[cat_data['Wings Weight'] > 0]
-                        avg_wings_cost_per_kg = (wings_data['Grand Total Cost'].sum() / wings_data['Wings Weight'].sum()) if wings_data['Wings Weight'].sum() > 0 else 0
+                        wings_data = cat_data[cat_data['Wings_Cost_per_kg'] > 0]
+                        avg_wings_cost_per_kg = (wings_data['Wings_Cost_per_kg'] * wings_data['Wings Weight']).sum() / wings_data['Wings Weight'].sum() if wings_data['Wings Weight'].sum() > 0 else 0
 
-                        bone_data = cat_data[cat_data['Bone Weight'] > 0]
-                        avg_bone_cost_per_kg = (bone_data['Grand Total Cost'].sum() / bone_data['Bone Weight'].sum()) if bone_data['Bone Weight'].sum() > 0 else 0
+                        bone_data = cat_data[cat_data['Bone_Cost_per_kg'] > 0]
+                        avg_bone_cost_per_kg = (bone_data['Bone_Cost_per_kg'] * bone_data['Bone Weight']).sum() / bone_data['Bone Weight'].sum() if bone_data['Bone Weight'].sum() > 0 else 0
 
                         # Operational metrics
                         avg_fuel_cost = cat_data[cat_data['Fuel Cost'] > 0]['Fuel Cost'].mean() if len(cat_data[cat_data['Fuel Cost'] > 0]) > 0 else 0
@@ -1106,17 +1106,17 @@ class LogisticsDashboardUpdater:
 
                     # Calculate MONTHLY AGGREGATE AVERAGES across all categories
 
-                    # FIX: Only include costs from trips that actually transported birds for Cost/Bird calculation
-                    month_bird_data = month_data[month_data['Number of Birds'] > 0]
-                    month_total_bird_costs = month_bird_data['Grand Total Cost'].sum() if len(month_bird_data) > 0 else 0
+                    # FIX: Use allocated costs instead of raw Grand Total Cost for accurate per-unit calculations (follows metrics explainer)
+                    month_bird_data = month_data[month_data['Whole_Chicken_Cost_per_Bird'] > 0]
+                    month_total_allocated_bird_costs = (month_bird_data['Whole_Chicken_Cost_per_Bird'] * month_bird_data['Number of Birds']).sum() if len(month_bird_data) > 0 else 0
                     month_total_bird_count = month_bird_data['Number of Birds'].sum() if len(month_bird_data) > 0 else 0
-                    month_avg_cost_per_bird = month_total_bird_costs / month_total_bird_count if month_total_bird_count > 0 else 0
+                    month_avg_cost_per_bird = month_total_allocated_bird_costs / month_total_bird_count if month_total_bird_count > 0 else 0
 
-                    # FIX: Only include costs from trips that actually transported crates for Cost/Crate calculation
-                    month_crate_data = month_data[month_data['Number of Crates'] > 0]
-                    month_total_crate_costs = month_crate_data['Grand Total Cost'].sum() if len(month_crate_data) > 0 else 0
+                    # FIX: Use allocated costs instead of raw Grand Total Cost for accurate per-unit calculations (follows metrics explainer)
+                    month_crate_data = month_data[month_data['Egg_Cost_per_Crate'] > 0]
+                    month_total_allocated_crate_costs = (month_crate_data['Egg_Cost_per_Crate'] * month_crate_data['Number of Crates']).sum() if len(month_crate_data) > 0 else 0
                     month_total_crate_count = month_crate_data['Number of Crates'].sum() if len(month_crate_data) > 0 else 0
-                    month_avg_cost_per_crate = month_total_crate_costs / month_total_crate_count if month_total_crate_count > 0 else 0
+                    month_avg_cost_per_crate = month_total_allocated_crate_costs / month_total_crate_count if month_total_crate_count > 0 else 0
 
                     # FIX: Only include costs from trips that actually transported weight for Cost/kg calculation
                     month_weight_data = month_data[month_data['Total Weight (kg)'] > 0]
@@ -1125,28 +1125,28 @@ class LogisticsDashboardUpdater:
                     month_avg_cost_per_kg = month_total_weight_costs / month_total_weight_count if month_total_weight_count > 0 else 0
 
                     # Monthly product-specific averages using AGGREGATE METHOD (GAAP compliant)
-                    month_gizzard_data = month_data[month_data['Gizzard Weight'] > 0]
-                    month_avg_gizzard_cost_per_kg = (month_gizzard_data['Grand Total Cost'].sum() / month_gizzard_data['Gizzard Weight'].sum()) if month_gizzard_data['Gizzard Weight'].sum() > 0 else 0
+                    month_gizzard_data = month_data[month_data['Gizzard_Cost_per_kg'] > 0]
+                    month_avg_gizzard_cost_per_kg = (month_gizzard_data['Gizzard_Cost_per_kg'] * month_gizzard_data['Gizzard Weight']).sum() / month_gizzard_data['Gizzard Weight'].sum() if month_gizzard_data['Gizzard Weight'].sum() > 0 else 0
 
-                    month_chicken_data = month_data[month_data['Whole Chicken Weight'] > 0]
-                    month_avg_chicken_cost_per_kg = (month_chicken_data['Grand Total Cost'].sum() / month_chicken_data['Whole Chicken Weight'].sum()) if month_chicken_data['Whole Chicken Weight'].sum() > 0 else 0
+                    month_chicken_data = month_data[month_data['Whole_Chicken_Cost_per_kg'] > 0]
+                    month_avg_chicken_cost_per_kg = (month_chicken_data['Whole_Chicken_Cost_per_kg'] * month_chicken_data['Whole Chicken Weight']).sum() / month_chicken_data['Whole Chicken Weight'].sum() if month_chicken_data['Whole Chicken Weight'].sum() > 0 else 0
                     month_avg_chicken_cost_per_bird = month_data[month_data['Whole_Chicken_Cost_per_Bird'] > 0]['Whole_Chicken_Cost_per_Bird'].mean() if len(month_data[month_data['Whole_Chicken_Cost_per_Bird'] > 0]) > 0 else 0
 
                     # Additional monthly product-specific averages using AGGREGATE METHOD
-                    month_laps_data = month_data[month_data['Laps Weight'] > 0]
-                    month_avg_laps_cost_per_kg = (month_laps_data['Grand Total Cost'].sum() / month_laps_data['Laps Weight'].sum()) if month_laps_data['Laps Weight'].sum() > 0 else 0
+                    month_laps_data = month_data[month_data['Laps_Cost_per_kg'] > 0]
+                    month_avg_laps_cost_per_kg = (month_laps_data['Laps_Cost_per_kg'] * month_laps_data['Laps Weight']).sum() / month_laps_data['Laps Weight'].sum() if month_laps_data['Laps Weight'].sum() > 0 else 0
 
-                    month_breast_data = month_data[month_data['Breast Weight'] > 0]
-                    month_avg_breast_cost_per_kg = (month_breast_data['Grand Total Cost'].sum() / month_breast_data['Breast Weight'].sum()) if month_breast_data['Breast Weight'].sum() > 0 else 0
+                    month_breast_data = month_data[month_data['Breast_Cost_per_kg'] > 0]
+                    month_avg_breast_cost_per_kg = (month_breast_data['Breast_Cost_per_kg'] * month_breast_data['Breast Weight']).sum() / month_breast_data['Breast Weight'].sum() if month_breast_data['Breast Weight'].sum() > 0 else 0
 
-                    month_fillet_data = month_data[month_data['Fillet Weight'] > 0]
-                    month_avg_fillet_cost_per_kg = (month_fillet_data['Grand Total Cost'].sum() / month_fillet_data['Fillet Weight'].sum()) if month_fillet_data['Fillet Weight'].sum() > 0 else 0
+                    month_fillet_data = month_data[month_data['Fillet_Cost_per_kg'] > 0]
+                    month_avg_fillet_cost_per_kg = (month_fillet_data['Fillet_Cost_per_kg'] * month_fillet_data['Fillet Weight']).sum() / month_fillet_data['Fillet Weight'].sum() if month_fillet_data['Fillet Weight'].sum() > 0 else 0
 
-                    month_wings_data = month_data[month_data['Wings Weight'] > 0]
-                    month_avg_wings_cost_per_kg = (month_wings_data['Grand Total Cost'].sum() / month_wings_data['Wings Weight'].sum()) if month_wings_data['Wings Weight'].sum() > 0 else 0
+                    month_wings_data = month_data[month_data['Wings_Cost_per_kg'] > 0]
+                    month_avg_wings_cost_per_kg = (month_wings_data['Wings_Cost_per_kg'] * month_wings_data['Wings Weight']).sum() / month_wings_data['Wings Weight'].sum() if month_wings_data['Wings Weight'].sum() > 0 else 0
 
-                    month_bone_data = month_data[month_data['Bone Weight'] > 0]
-                    month_avg_bone_cost_per_kg = (month_bone_data['Grand Total Cost'].sum() / month_bone_data['Bone Weight'].sum()) if month_bone_data['Bone Weight'].sum() > 0 else 0
+                    month_bone_data = month_data[month_data['Bone_Cost_per_kg'] > 0]
+                    month_avg_bone_cost_per_kg = (month_bone_data['Bone_Cost_per_kg'] * month_bone_data['Bone Weight']).sum() / month_bone_data['Bone Weight'].sum() if month_bone_data['Bone Weight'].sum() > 0 else 0
 
                     # Monthly operational metrics
                     month_avg_fuel_cost = month_data[month_data['Fuel Cost'] > 0]['Fuel Cost'].mean() if len(month_data[month_data['Fuel Cost'] > 0]) > 0 else 0
