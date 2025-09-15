@@ -917,8 +917,9 @@ class LogisticsDashboardUpdater:
         total_weight = 0
 
         for product in products:
-            weight_col = f'{product.replace(" ", "_")} Weight'
-            cost_per_kg_col = f'{product.replace(" ", "_")}_Cost_per_kg'
+            # FIX: Use correct column names - weight columns have spaces, cost columns have underscores
+            weight_col = f'{product.replace("_", " ")} Weight'  # Use space for weight columns
+            cost_per_kg_col = f'{product.replace(" ", "_")}_Cost_per_kg'  # Use underscore for cost columns
 
             if weight_col in row and cost_per_kg_col in row:
                 weight = row[weight_col] if pd.notna(row[weight_col]) else 0
