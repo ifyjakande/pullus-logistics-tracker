@@ -56,7 +56,7 @@ jobs:
 
   update-dashboard:
     needs: check-changes
-    if: needs.check-changes.outputs.needs_update == 'true'
+    if: always() && needs.check-changes.result == 'success' && needs.check-changes.outputs.needs_update == 'true'
     runs-on: ubuntu-latest
 
     steps:
