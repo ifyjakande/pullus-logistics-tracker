@@ -419,7 +419,7 @@ class LogisticsDashboardUpdater:
         ]
 
         # Crate space equivalent factor (configurable)
-        CRATE_SPACE_FACTOR = 15  # 1 crate = 15kg equivalent space
+        CRATE_SPACE_FACTOR = 2  # 1 crate = 2kg equivalent space
 
         # Initialize product-specific cost columns
         for product in product_weight_columns:
@@ -600,7 +600,7 @@ class LogisticsDashboardUpdater:
 
             # Add month-year for grouping
             df['Month_Year'] = df['Date'].dt.to_period('M').astype(str)
-            
+
             print(f"✓ Successfully processed {len(df)} records")
             return df
             
@@ -672,41 +672,42 @@ class LogisticsDashboardUpdater:
             df_abuja_supply_with_birds = df_abuja_supply[df_abuja_supply['Number of Birds'] > 0]
             df_with_data_and_birds = df_with_data[df_with_data['Number of Birds'] > 0]
 
-            df_offtake_with_weight = df_offtake[df_offtake['Total Weight (kg)'] > 0]
-            df_supply_with_weight = df_supply[df_supply['Total Weight (kg)'] > 0]
-            df_abuja_supply_with_weight = df_abuja_supply[df_abuja_supply['Total Weight (kg)'] > 0]
-            df_with_data_and_weight = df_with_data[df_with_data['Total Weight (kg)'] > 0]
+            df_offtake_with_weight = df_offtake[(df_offtake['Total Weight (kg)'] > 0) & (df_offtake['Grand Total Cost'] > 0)]
+            df_supply_with_weight = df_supply[(df_supply['Total Weight (kg)'] > 0) & (df_supply['Grand Total Cost'] > 0)]
+            df_abuja_supply_with_weight = df_abuja_supply[(df_abuja_supply['Total Weight (kg)'] > 0) & (df_abuja_supply['Grand Total Cost'] > 0)]
+            df_with_data_and_weight = df_with_data[(df_with_data['Total Weight (kg)'] > 0) & (df_with_data['Grand Total Cost'] > 0)]
 
             metrics = {
-                # Traditional bird-based metrics (whole chicken focus)
-                'avg_purchase_cost_per_bird': self._safe_division(df_offtake_with_birds['Grand Total Cost'].sum(), df_offtake_with_birds['Number of Birds'].sum()),
-                'avg_supply_cost_per_bird': self._safe_division(df_supply_with_birds['Grand Total Cost'].sum(), df_supply_with_birds['Number of Birds'].sum()),
+                # Traditional bird-based metrics (whole chicken focus) - FIXED to use allocated costs for purchase/supply cost per bird
+                'avg_purchase_cost_per_bird': self._safe_division((df_offtake_with_birds['Whole_Chicken_Cost_per_Bird'] * df_offtake_with_birds['Number of Birds']).sum(), df_offtake_with_birds['Number of Birds'].sum()),
+                'avg_supply_cost_per_bird': self._safe_division((df_supply_with_birds['Whole_Chicken_Cost_per_Bird'] * df_supply_with_birds['Number of Birds']).sum(), df_supply_with_birds['Number of Birds'].sum()),
                 'avg_abuja_supply_cost_per_bird': self._safe_division(df_abuja_supply_with_birds['Grand Total Cost'].sum(), df_abuja_supply_with_birds['Number of Birds'].sum()),
                 'total_birds_moved': df['Number of Birds'].sum(),
                 'avg_grand_total_per_bird': self._safe_division(df_with_data_and_birds['Grand Total Cost'].sum(), df_with_data_and_birds['Number of Birds'].sum()),
 
-                # Traditional weight-based metrics
-                'avg_purchase_cost_per_kg': self._safe_division(df_offtake_with_weight['Grand Total Cost'].sum(), df_offtake_with_weight['Total Weight (kg)'].sum()),
-                'avg_supply_cost_per_kg': self._safe_division(df_supply_with_weight['Grand Total Cost'].sum(), df_supply_with_weight['Total Weight (kg)'].sum()),
+                # Traditional weight-based metrics - FIXED to use allocated costs for purchase/supply cost per kg
+                # Calculate weighted average of all product costs per kg for each record
+                'avg_purchase_cost_per_kg': self._calculate_weighted_avg_cost_per_kg(df_offtake_with_weight),
+                'avg_supply_cost_per_kg': self._calculate_weighted_avg_cost_per_kg(df_supply_with_weight),
                 'avg_abuja_supply_cost_per_kg': self._safe_division(df_abuja_supply_with_weight['Grand Total Cost'].sum(), df_abuja_supply_with_weight['Total Weight (kg)'].sum()),
                 'total_weight_moved': df['Total Weight (kg)'].sum(),
                 'avg_grand_total_per_kg': self._safe_division(df_with_data_and_weight['Grand Total Cost'].sum(), df_with_data_and_weight['Total Weight (kg)'].sum()),
 
-                # NEW: Product-specific metrics
+                # NEW: Product-specific metrics - FIXED to use weighted averages
                 'total_crates_moved': df['Number of Crates'].sum(),
-                'avg_egg_cost_per_crate': self._safe_avg(df[df['Egg_Cost_per_Crate'] > 0]['Egg_Cost_per_Crate']),
+                'avg_egg_cost_per_crate': self._calculate_weighted_avg_cost_per_crate(df),
 
-                # Product-specific cost per kg metrics
-                'avg_gizzard_cost_per_kg': self._safe_avg(df[df['Gizzard_Cost_per_kg'] > 0]['Gizzard_Cost_per_kg']),
-                'avg_whole_chicken_cost_per_kg': self._safe_avg(df[df['Whole_Chicken_Cost_per_kg'] > 0]['Whole_Chicken_Cost_per_kg']),
-                'avg_laps_cost_per_kg': self._safe_avg(df[df['Laps_Cost_per_kg'] > 0]['Laps_Cost_per_kg']),
-                'avg_breast_cost_per_kg': self._safe_avg(df[df['Breast_Cost_per_kg'] > 0]['Breast_Cost_per_kg']),
-                'avg_fillet_cost_per_kg': self._safe_avg(df[df['Fillet_Cost_per_kg'] > 0]['Fillet_Cost_per_kg']),
-                'avg_wings_cost_per_kg': self._safe_avg(df[df['Wings_Cost_per_kg'] > 0]['Wings_Cost_per_kg']),
-                'avg_bone_cost_per_kg': self._safe_avg(df[df['Bone_Cost_per_kg'] > 0]['Bone_Cost_per_kg']),
+                # Product-specific cost per kg metrics - FIXED to use weighted averages
+                'avg_gizzard_cost_per_kg': self._calculate_weighted_avg_for_product(df, 'Gizzard'),
+                'avg_whole_chicken_cost_per_kg': self._calculate_weighted_avg_for_product(df, 'Whole Chicken'),
+                'avg_laps_cost_per_kg': self._calculate_weighted_avg_for_product(df, 'Laps'),
+                'avg_breast_cost_per_kg': self._calculate_weighted_avg_for_product(df, 'Breast'),
+                'avg_fillet_cost_per_kg': self._calculate_weighted_avg_for_product(df, 'Fillet'),
+                'avg_wings_cost_per_kg': self._calculate_weighted_avg_for_product(df, 'Wings'),
+                'avg_bone_cost_per_kg': self._calculate_weighted_avg_for_product(df, 'Bone'),
 
-                # Whole chicken specific (bird count correlation)
-                'avg_whole_chicken_cost_per_bird': self._safe_avg(df[df['Whole_Chicken_Cost_per_Bird'] > 0]['Whole_Chicken_Cost_per_Bird']),
+                # Whole chicken specific (bird count correlation) - FIXED to use weighted average
+                'avg_whole_chicken_cost_per_bird': self._calculate_weighted_avg_cost_per_bird(df),
 
                 # Product weight totals
                 'total_gizzard_weight': df['Gizzard Weight'].sum(),
@@ -796,7 +797,8 @@ class LogisticsDashboardUpdater:
             # Format violations
             violation_list = []
             for _, row in violations.iterrows():
-                actual_cost_per_kg = row['Grand Total Cost'] / row['Total Weight (kg)'] if row['Total Weight (kg)'] > 0 else 0
+                # FIX: Use allocated cost per kg instead of raw cost for accurate benchmark comparison
+                actual_cost_per_kg = self._get_allocated_cost_per_kg_for_row(row)
 
                 violation_list.append({
                     'date': row['Date'].strftime('%Y-%m-%d') if pd.notna(row['Date']) else '',
@@ -823,9 +825,117 @@ class LogisticsDashboardUpdater:
         """Safely calculate average, returning 0 if series is empty."""
         return series.mean() if len(series) > 0 else 0
 
+    def _calculate_weighted_avg_cost_per_kg(self, df) -> float:
+        """Calculate weighted average cost per kg using allocated costs for all products."""
+        if len(df) == 0:
+            return 0
+
+        # Get all product types with weights
+        products = ['Gizzard', 'Whole Chicken', 'Laps', 'Breast', 'Fillet', 'Wings', 'Bone']
+
+        total_allocated_cost = 0
+        total_weight = 0
+
+        for _, row in df.iterrows():
+            for product in products:
+                weight_col = f'{product} Weight'
+                cost_per_kg_col = f'{product}_Cost_per_kg'
+
+                if weight_col in row and cost_per_kg_col in row:
+                    weight = row[weight_col] if pd.notna(row[weight_col]) else 0
+                    cost_per_kg = row[cost_per_kg_col] if pd.notna(row[cost_per_kg_col]) else 0
+
+                    if weight > 0 and cost_per_kg > 0:
+                        total_allocated_cost += weight * cost_per_kg
+                        total_weight += weight
+
+        return total_allocated_cost / total_weight if total_weight > 0 else 0
+
+    def _calculate_weighted_avg_for_product(self, df, product_name) -> float:
+        """Calculate weighted average cost per kg for a specific product."""
+        if len(df) == 0:
+            return 0
+
+        weight_col = f'{product_name} Weight'
+        cost_per_kg_col = f'{product_name.replace(" ", "_")}_Cost_per_kg'
+
+        # Filter records that have this product
+        product_data = df[(df[weight_col] > 0) & (df[cost_per_kg_col] > 0)]
+
+        if len(product_data) == 0:
+            return 0
+
+        # Calculate weighted average: sum(weight × cost_per_kg) / sum(weight)
+        total_cost = (product_data[weight_col] * product_data[cost_per_kg_col]).sum()
+        total_weight = product_data[weight_col].sum()
+
+        return total_cost / total_weight if total_weight > 0 else 0
+
+    def _calculate_weighted_avg_cost_per_bird(self, df) -> float:
+        """Calculate weighted average cost per bird for whole chicken."""
+        if len(df) == 0:
+            return 0
+
+        # Filter records that have birds and cost per bird
+        bird_data = df[(df['Number of Birds'] > 0) & (df['Whole_Chicken_Cost_per_Bird'] > 0)]
+
+        if len(bird_data) == 0:
+            return 0
+
+        # Calculate weighted average: sum(birds × cost_per_bird) / sum(birds)
+        total_cost = (bird_data['Number of Birds'] * bird_data['Whole_Chicken_Cost_per_Bird']).sum()
+        total_birds = bird_data['Number of Birds'].sum()
+
+        return total_cost / total_birds if total_birds > 0 else 0
+
+    def _calculate_weighted_avg_cost_per_crate(self, df) -> float:
+        """Calculate weighted average cost per crate for eggs."""
+        if len(df) == 0:
+            return 0
+
+        # Filter records that have crates and cost per crate
+        crate_data = df[(df['Number of Crates'] > 0) & (df['Egg_Cost_per_Crate'] > 0)]
+
+        if len(crate_data) == 0:
+            return 0
+
+        # Calculate weighted average: sum(crates × cost_per_crate) / sum(crates)
+        total_cost = (crate_data['Number of Crates'] * crate_data['Egg_Cost_per_Crate']).sum()
+        total_crates = crate_data['Number of Crates'].sum()
+
+        return total_cost / total_crates if total_crates > 0 else 0
+
+    def _get_allocated_cost_per_kg_for_row(self, row) -> float:
+        """Calculate allocated cost per kg for a single row using weighted average of all products."""
+        if row['Total Weight (kg)'] <= 0:
+            return 0
+
+        # Get all product types with weights
+        products = ['Gizzard', 'Whole_Chicken', 'Laps', 'Breast', 'Fillet', 'Wings', 'Bone']
+
+        total_allocated_cost = 0
+        total_weight = 0
+
+        for product in products:
+            weight_col = f'{product.replace(" ", "_")} Weight'
+            cost_per_kg_col = f'{product.replace(" ", "_")}_Cost_per_kg'
+
+            if weight_col in row and cost_per_kg_col in row:
+                weight = row[weight_col] if pd.notna(row[weight_col]) else 0
+                cost_per_kg = row[cost_per_kg_col] if pd.notna(row[cost_per_kg_col]) else 0
+
+                if weight > 0 and cost_per_kg > 0:
+                    total_allocated_cost += weight * cost_per_kg
+                    total_weight += weight
+
+        return total_allocated_cost / total_weight if total_weight > 0 else 0
+
     def get_applicable_benchmarks(self, row) -> list:
         """Determine which benchmarks apply to a given logistics row."""
         benchmarks = []
+
+        # Get movement category if available
+        category = row.get('Movement Category', '')
 
         # Route-specific benchmarks (most specific first)
         if (self.normalize_location(row['From']) == 'KADUNA' and
@@ -835,6 +945,11 @@ class LogisticsDashboardUpdater:
 
         elif row['Movement Category'] == 'Abuja Internal Supply':
             benchmarks.append(('abuja_internal_supply_per_kg', self.cost_benchmarks['abuja_internal_supply_per_kg']))
+
+        # AUTOMATIC SUPPLY CATEGORY DETECTION (works for any supply location)
+        elif ('Supply' in category or 'Internal' in category):
+            # This is a supply category - use supply benchmark
+            benchmarks.append(('supply_cost_per_kg', self.cost_benchmarks['supply_cost_per_kg']))
 
         # General operation benchmarks
         elif row['Logistics_Type_Normalized'] == 'OFFTAKE':
@@ -858,8 +973,8 @@ class LogisticsDashboardUpdater:
             if row['Grand Total Cost'] <= 0 or row['Total Weight (kg)'] <= 0:
                 continue
 
-            # Calculate actual cost per kg
-            actual_cost_per_kg = row['Grand Total Cost'] / row['Total Weight (kg)']
+            # Calculate actual allocated cost per kg (not raw transportation cost)
+            actual_cost_per_kg = self._get_allocated_cost_per_kg_for_row(row)
 
             # Get applicable benchmarks
             applicable_benchmarks = self.get_applicable_benchmarks(row)
@@ -941,15 +1056,36 @@ class LogisticsDashboardUpdater:
             # Use aggregated purchase/offtake cost
             offtake_data = cat_data[cat_data['Logistics_Type_Normalized'] == 'OFFTAKE']
             if len(offtake_data) > 0:
-                aggregated_cost = (offtake_data['Grand Total Cost'].sum() / offtake_data['Total Weight (kg)'].sum()) if offtake_data['Total Weight (kg)'].sum() > 0 else 0
+                offtake_with_weight_and_cost = offtake_data[(offtake_data['Total Weight (kg)'] > 0) & (offtake_data['Grand Total Cost'] > 0)]
+                aggregated_cost = (offtake_with_weight_and_cost['Grand Total Cost'].sum() / offtake_with_weight_and_cost['Total Weight (kg)'].sum()) if offtake_with_weight_and_cost['Total Weight (kg)'].sum() > 0 else 0
         elif most_common_benchmark in ['supply_cost_per_kg', 'kaduna_to_abuja_supply_per_kg', 'abuja_internal_supply_per_kg']:
-            # Use aggregated supply cost
-            supply_data = cat_data[cat_data['Logistics_Type_Normalized'] == 'SUPPLY']
-            if len(supply_data) > 0:
-                aggregated_cost = (supply_data['Grand Total Cost'].sum() / supply_data['Total Weight (kg)'].sum()) if supply_data['Total Weight (kg)'].sum() > 0 else 0
+            # Use aggregated supply cost - AUTOMATIC LOGIC for supply categories
+            # First check if this is a supply category (contains "Supply" or "Internal")
+            category = cat_data['Movement Category'].iloc[0] if len(cat_data) > 0 else ''
+            if ('Supply' in category or 'Internal' in category):
+                # This entire category represents supply operations - use same logic as monthly breakdown
+                supply_with_weight = cat_data[(cat_data['Total Weight (kg)'] > 0) & (cat_data['Grand Total Cost'] > 0)]
+                if len(supply_with_weight) > 0:
+                    total_cost = 0
+                    total_weight = 0
+                    for _, row in supply_with_weight.iterrows():
+                        weight = row['Total Weight (kg)']
+                        cost = row['Grand Total Cost'] if row['Grand Total Cost'] > 0 else row.get('Logistics Cost', 0)
+                        total_cost += cost
+                        total_weight += weight
+                    aggregated_cost = total_cost / total_weight if total_weight > 0 else 0
+                else:
+                    aggregated_cost = 0
+            else:
+                # Traditional approach for mixed categories
+                supply_data = cat_data[cat_data['Logistics_Type_Normalized'] == 'SUPPLY']
+                if len(supply_data) > 0:
+                    supply_with_weight_and_cost = supply_data[(supply_data['Total Weight (kg)'] > 0) & (supply_data['Grand Total Cost'] > 0)]
+                    aggregated_cost = (supply_with_weight_and_cost['Grand Total Cost'].sum() / supply_with_weight_and_cost['Total Weight (kg)'].sum()) if supply_with_weight_and_cost['Total Weight (kg)'].sum() > 0 else 0
         else:
             # Fallback to overall category average
-            aggregated_cost = (cat_data['Grand Total Cost'].sum() / cat_data['Total Weight (kg)'].sum()) if cat_data['Total Weight (kg)'].sum() > 0 else 0
+            cat_with_weight_and_cost = cat_data[(cat_data['Total Weight (kg)'] > 0) & (cat_data['Grand Total Cost'] > 0)]
+            aggregated_cost = (cat_with_weight_and_cost['Grand Total Cost'].sum() / cat_with_weight_and_cost['Total Weight (kg)'].sum()) if cat_with_weight_and_cost['Total Weight (kg)'].sum() > 0 else 0
 
         # Calculate status based on aggregated cost vs benchmark
         if aggregated_cost > 0 and benchmark_value > 0:
@@ -1005,7 +1141,7 @@ class LogisticsDashboardUpdater:
                         cat_total_crate_count = cat_crate_data['Number of Crates'].sum() if len(cat_crate_data) > 0 else 0
                         avg_cost_per_crate = cat_total_allocated_crate_costs / cat_total_crate_count if cat_total_crate_count > 0 else 0
 
-                        cat_weight_data = cat_data[cat_data['Total Weight (kg)'] > 0]
+                        cat_weight_data = cat_data[(cat_data['Total Weight (kg)'] > 0) & (cat_data['Grand Total Cost'] > 0)]
                         cat_total_weight_costs = cat_weight_data['Grand Total Cost'].sum() if len(cat_weight_data) > 0 else 0
                         cat_total_weight_count = cat_weight_data['Total Weight (kg)'].sum() if len(cat_weight_data) > 0 else 0
                         avg_cost_per_kg = cat_total_weight_costs / cat_total_weight_count if cat_total_weight_count > 0 else 0
@@ -1040,14 +1176,55 @@ class LogisticsDashboardUpdater:
                         third_party_percentage = (len(cat_data[cat_data['Transportation Mode'] == 'Third Party']) / len(cat_data) * 100) if len(cat_data) > 0 else 0
 
                         # Purchase vs Supply cost comparison using AGGREGATE METHOD (GAAP compliant)
-                        # FIX: Only include costs from trips that actually transported weight for Purchase/Supply ₦/kg calculations
-                        offtake_data = cat_data[cat_data['Logistics_Type_Normalized'] == 'OFFTAKE']
-                        offtake_with_weight = offtake_data[offtake_data['Total Weight (kg)'] > 0]
-                        avg_purchase_cost_per_kg = (offtake_with_weight['Grand Total Cost'].sum() / offtake_with_weight['Total Weight (kg)'].sum()) if offtake_with_weight['Total Weight (kg)'].sum() > 0 else 0
+                        # FIX: Use allocated costs for true purchase/supply cost per kg (not raw transportation costs) - CATEGORY LEVEL
 
-                        supply_data = cat_data[cat_data['Logistics_Type_Normalized'] == 'SUPPLY']
-                        supply_with_weight = supply_data[supply_data['Total Weight (kg)'] > 0]
-                        avg_supply_cost_per_kg = (supply_with_weight['Grand Total Cost'].sum() / supply_with_weight['Total Weight (kg)'].sum()) if supply_with_weight['Total Weight (kg)'].sum() > 0 else 0
+                        # For OFFTAKE categories, calculate purchase cost
+                        offtake_data = cat_data[cat_data['Logistics_Type_Normalized'] == 'OFFTAKE']
+                        offtake_with_weight = offtake_data[(offtake_data['Total Weight (kg)'] > 0) & (offtake_data['Grand Total Cost'] > 0)]
+                        avg_purchase_cost_per_kg = self._calculate_weighted_avg_cost_per_kg(offtake_with_weight)
+
+                        # For SUPPLY categories, the logic is different:
+                        # If the category name contains "Supply" or "Internal", it IS a supply category
+                        # so use the category's own data to calculate supply cost
+                        if ('Supply' in category or 'Internal' in category):
+                            # This entire category represents supply operations
+                            # AUTOMATIC ROBUST LOGIC: Works for ANY supply location
+                            supply_with_weight = cat_data[(cat_data['Total Weight (kg)'] > 0) & (cat_data['Grand Total Cost'] > 0)]
+                            if len(supply_with_weight) > 0:
+                                total_cost = 0
+                                total_weight = 0
+
+                                # Only use ACTUAL costs - no estimation
+                                for _, row in supply_with_weight.iterrows():
+                                    weight = row['Total Weight (kg)']
+                                    # Try Grand Total Cost first, then Logistics Cost as fallback
+                                    cost = row['Grand Total Cost'] if row['Grand Total Cost'] > 0 else row.get('Logistics Cost', 0)
+
+                                    # NO ESTIMATION - only use actual costs
+                                    total_cost += cost
+                                    total_weight += weight
+
+                                avg_supply_cost_per_kg = total_cost / total_weight if total_weight > 0 else 0
+                            else:
+                                avg_supply_cost_per_kg = 0
+                        else:
+                            # For mixed categories, look for supply records within the category
+                            supply_data = cat_data[cat_data['Logistics_Type_Normalized'] == 'SUPPLY']
+                            supply_with_weight = supply_data[(supply_data['Total Weight (kg)'] > 0) & (supply_data['Grand Total Cost'] > 0)]
+                            avg_supply_cost_per_kg = self._calculate_weighted_avg_cost_per_kg(supply_with_weight)
+
+                            # If no supply data found for this month/category, check if this category typically has supplies
+                            if avg_supply_cost_per_kg == 0:
+                                category_all_months = df[df['Movement Category'] == category]
+                                category_supplies = category_all_months[
+                                    (category_all_months['Logistics_Type_Normalized'] == 'SUPPLY') &
+                                    (category_all_months['Total Weight (kg)'] > 0) &
+                                    (category_all_months['Grand Total Cost'] > 0)
+                                ]
+                                if len(category_supplies) > 0:
+                                    # Use most recent supply cost for this category
+                                    recent_supplies = category_supplies.sort_values('Month_Year').tail(5)  # Last 5 transactions
+                                    avg_supply_cost_per_kg = self._calculate_weighted_avg_cost_per_kg(recent_supplies)
 
                         # Benchmark analysis for this category
                         benchmark_info = self._get_category_benchmark_info(cat_data)
@@ -1119,7 +1296,7 @@ class LogisticsDashboardUpdater:
                     month_avg_cost_per_crate = month_total_allocated_crate_costs / month_total_crate_count if month_total_crate_count > 0 else 0
 
                     # FIX: Only include costs from trips that actually transported weight for Cost/kg calculation
-                    month_weight_data = month_data[month_data['Total Weight (kg)'] > 0]
+                    month_weight_data = month_data[(month_data['Total Weight (kg)'] > 0) & (month_data['Grand Total Cost'] > 0)]
                     month_total_weight_costs = month_weight_data['Grand Total Cost'].sum() if len(month_weight_data) > 0 else 0
                     month_total_weight_count = month_weight_data['Total Weight (kg)'].sum() if len(month_weight_data) > 0 else 0
                     month_avg_cost_per_kg = month_total_weight_costs / month_total_weight_count if month_total_weight_count > 0 else 0
@@ -1153,14 +1330,17 @@ class LogisticsDashboardUpdater:
                     month_third_party_percentage = (len(month_data[month_data['Transportation Mode'] == 'Third Party']) / len(month_data) * 100) if len(month_data) > 0 else 0
 
                     # Monthly Purchase vs Supply comparison using AGGREGATE METHOD (GAAP compliant)
-                    # FIX: Only include costs from trips that actually transported weight for Purchase/Supply ₦/kg calculations
-                    month_offtake_data = month_data[month_data['Logistics_Type_Normalized'] == 'OFFTAKE']
-                    month_offtake_with_weight = month_offtake_data[month_offtake_data['Total Weight (kg)'] > 0]
-                    month_avg_purchase_cost_per_kg = (month_offtake_with_weight['Grand Total Cost'].sum() / month_offtake_with_weight['Total Weight (kg)'].sum()) if month_offtake_with_weight['Total Weight (kg)'].sum() > 0 else 0
+                    # FIX: Use allocated costs for true purchase/supply cost per kg (not raw transportation costs)
 
+                    # Calculate overall monthly purchase cost from offtake data
+                    month_offtake_data = month_data[month_data['Logistics_Type_Normalized'] == 'OFFTAKE']
+                    month_offtake_with_weight = month_offtake_data[(month_offtake_data['Total Weight (kg)'] > 0) & (month_offtake_data['Grand Total Cost'] > 0)]
+                    month_avg_purchase_cost_per_kg = self._calculate_weighted_avg_cost_per_kg(month_offtake_with_weight)
+
+                    # Calculate overall monthly supply cost from all supply data (including supply categories)
                     month_supply_data = month_data[month_data['Logistics_Type_Normalized'] == 'SUPPLY']
-                    month_supply_with_weight = month_supply_data[month_supply_data['Total Weight (kg)'] > 0]
-                    month_avg_supply_cost_per_kg = (month_supply_with_weight['Grand Total Cost'].sum() / month_supply_with_weight['Total Weight (kg)'].sum()) if month_supply_with_weight['Total Weight (kg)'].sum() > 0 else 0
+                    month_supply_with_weight = month_supply_data[(month_supply_data['Total Weight (kg)'] > 0) & (month_supply_data['Grand Total Cost'] > 0)]
+                    month_avg_supply_cost_per_kg = self._calculate_weighted_avg_cost_per_kg(month_supply_with_weight)
 
                     monthly_data.append({
                         'Month': month,
@@ -1824,8 +2004,8 @@ class LogisticsDashboardUpdater:
                         f"₦{row['Avg Bone Cost per kg']:,.2f}",
                         bone_pct,
                         f"{row['Third Party %']:,.1f}%",
-                        f"₦{row['Avg Purchase Cost per kg']:,.2f}",
-                        f"₦{row['Avg Supply Cost per kg']:,.2f}",
+                        f"₦{row['Avg Purchase Cost per kg']:,.2f}" if row['Avg Purchase Cost per kg'] > 0 else "N/A",
+                        f"₦{row['Avg Supply Cost per kg']:,.2f}" if row['Avg Supply Cost per kg'] > 0 else "N/A",
                         row['Benchmark_Display'],
                         row['Benchmark_Status']
                     ])
