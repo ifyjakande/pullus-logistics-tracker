@@ -360,7 +360,7 @@ class MetricsExplainerCreator:
             ["", "", "", "", "", "", "", "", "", ""],
             ["SCENARIO C: Mixed Shipment (Products + Crates + Birds)", "", "", "", "", "", "", "", "", ""],
             ["1. Convert crates to space equivalent (1 crate = 2kg space)", "", "", "", "", "", "", "", "", ""],
-            ["2. Calculate total equivalent weight = Product_Weight + (Crates × 15)", "", "", "", "", "", "", "", "", ""],
+            ["2. Calculate total equivalent weight = Product_Weight + (Crates × 2)", "", "", "", "", "", "", "", "", ""],
             ["3. Allocate remaining cost (after eggs) to weight-based products", "", "", "", "", "", "", "", "", ""],
             ["4. Proportionally distribute to whole chicken based on weight", "", "", "", "", "", "", "", "", ""],
             ["", "", "", "", "", "", "", "", "", ""],
