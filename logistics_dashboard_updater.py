@@ -2120,24 +2120,47 @@ class LogisticsDashboardUpdater:
 
 if __name__ == "__main__":
     # Configuration - use environment variables for security (works with GitHub Actions secrets)
+    # Try GOOGLE_SERVICE_ACCOUNT (JSON content) first, then fall back to GOOGLE_SERVICE_ACCOUNT_FILE (file path)
+    service_account_json = os.getenv('GOOGLE_SERVICE_ACCOUNT')
     credentials_path = os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE')
     spreadsheet_id = os.getenv('SPREADSHEET_ID')
 
     # For local development, you can set these environment variables:
     # export GOOGLE_SERVICE_ACCOUNT_FILE="/path/to/your/service_account.json"
     # export SPREADSHEET_ID="your_spreadsheet_id_here"
+    # For CI/CD, GOOGLE_SERVICE_ACCOUNT contains the JSON content directly
 
-    if not credentials_path:
-        raise ValueError("Please set GOOGLE_SERVICE_ACCOUNT_FILE environment variable")
+    if not service_account_json and not credentials_path:
+        raise ValueError("Please set either GOOGLE_SERVICE_ACCOUNT or GOOGLE_SERVICE_ACCOUNT_FILE environment variable")
 
     if not spreadsheet_id:
         raise ValueError("Please set SPREADSHEET_ID environment variable")
 
-    # Create updater instance
-    updater = LogisticsDashboardUpdater(credentials_path, spreadsheet_id)
-    
-    # Run the update
-    success = updater.run_update()
+    # Handle JSON content vs file path
+    if service_account_json:
+        # Write JSON content to temporary file for gspread
+        import tempfile
+        import json
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
+            json.dump(json.loads(service_account_json), temp_file, indent=2)
+            temp_credentials_path = temp_file.name
+
+        try:
+            # Create updater instance with temporary file
+            updater = LogisticsDashboardUpdater(temp_credentials_path, spreadsheet_id)
+
+            # Run the update
+            success = updater.run_update()
+        finally:
+            # Clean up temporary file
+            os.unlink(temp_credentials_path)
+    else:
+        # Create updater instance with file path
+        updater = LogisticsDashboardUpdater(credentials_path, spreadsheet_id)
+
+        # Run the update
+        success = updater.run_update()
     
     if success:
         print(f"\n✨ Results written to 2 sheets:")
