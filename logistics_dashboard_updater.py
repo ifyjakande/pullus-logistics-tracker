@@ -511,7 +511,7 @@ class LogisticsDashboardUpdater:
                     cleaned_headers.append("")
 
             # Use the actual headers from the sheet
-            print(f"📋 Found headers: {cleaned_headers[:15]}...")  # Show first 15 headers for debugging
+            print(f"📋 Found {len(cleaned_headers)} columns in source data")
             
             # Data starts from row 4 (index 3)
             data_rows = all_data[3:]

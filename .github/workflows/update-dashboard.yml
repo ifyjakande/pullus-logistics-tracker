@@ -2,8 +2,8 @@ name: Update Logistics Dashboard
 
 on:
   schedule:
-    # Run every 30 minutes
-    - cron: '*/30 * * * *'
+    # Run every 5 minutes
+    - cron: '*/5 * * * *'
   # Allow manual trigger
   workflow_dispatch:
 
