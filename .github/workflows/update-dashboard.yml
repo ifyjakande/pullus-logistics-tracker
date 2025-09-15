@@ -38,7 +38,7 @@ jobs:
         CI: "true"
       run: |
         python check_changes.py > check_output.txt 2>&1
-        if python check_changes.py | grep -q "NEEDS_UPDATE=true"; then
+        if grep -q "NEEDS_UPDATE=true" check_output.txt; then
           echo "needs_update=true" >> $GITHUB_OUTPUT
         else
           echo "needs_update=false" >> $GITHUB_OUTPUT
