@@ -27,3 +27,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Internal analysis documents
+ZERO_COST_IMPACT_ANALYSIS.md

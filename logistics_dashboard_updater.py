@@ -657,47 +657,115 @@ class LogisticsDashboardUpdater:
         return 'Uncategorized'
     
     def calculate_overall_metrics(self, df: pd.DataFrame) -> Dict[str, float]:
-        """Calculate overall KPIs for the dashboard including product-specific metrics."""
+        """Calculate overall KPIs using 4-tier filtering strategy for accurate metrics with missing cost data."""
         try:
-            # Filter out rows with zero values for averages
-            df_with_data = df[df['Grand Total Cost'] > 0]
-            df_offtake = df_with_data[df_with_data['Logistics_Type_Normalized'] == 'OFFTAKE']
-            df_supply = df_with_data[df_with_data['Logistics_Type_Normalized'] == 'SUPPLY']
-            # Use our new intelligent Abuja detection instead of manual "Is Abuja" flag
-            df_abuja_supply = df_supply[df_supply['Movement Category'] == 'Abuja Internal Supply']
+            # 4-TIER FILTERING STRATEGY (same as monthly breakdown approach)
 
-            # FIX: Apply filtering to ensure accurate per-unit calculations in overall metrics
-            df_offtake_with_birds = df_offtake[df_offtake['Number of Birds'] > 0]
-            df_supply_with_birds = df_supply[df_supply['Number of Birds'] > 0]
-            df_abuja_supply_with_birds = df_abuja_supply[df_abuja_supply['Number of Birds'] > 0]
-            df_with_data_and_birds = df_with_data[df_with_data['Number of Birds'] > 0]
-
-            df_offtake_with_weight = df_offtake[(df_offtake['Total Weight (kg)'] > 0) & (df_offtake['Grand Total Cost'] > 0)]
-            df_supply_with_weight = df_supply[(df_supply['Total Weight (kg)'] > 0) & (df_supply['Grand Total Cost'] > 0)]
-            df_abuja_supply_with_weight = df_abuja_supply[(df_abuja_supply['Total Weight (kg)'] > 0) & (df_abuja_supply['Grand Total Cost'] > 0)]
-            df_with_data_and_weight = df_with_data[(df_with_data['Total Weight (kg)'] > 0) & (df_with_data['Grand Total Cost'] > 0)]
-
-            metrics = {
-                # Traditional bird-based metrics (whole chicken focus) - FIXED to use allocated costs for purchase/supply cost per bird
-                'avg_purchase_cost_per_bird': self._safe_division((df_offtake_with_birds['Whole_Chicken_Cost_per_Bird'] * df_offtake_with_birds['Number of Birds']).sum(), df_offtake_with_birds['Number of Birds'].sum()),
-                'avg_supply_cost_per_bird': self._safe_division((df_supply_with_birds['Whole_Chicken_Cost_per_Bird'] * df_supply_with_birds['Number of Birds']).sum(), df_supply_with_birds['Number of Birds'].sum()),
-                'avg_abuja_supply_cost_per_bird': self._safe_division(df_abuja_supply_with_birds['Grand Total Cost'].sum(), df_abuja_supply_with_birds['Number of Birds'].sum()),
+            # TIER 1: VOLUME-BASED KPIs - Include ALL records (operational scale metrics)
+            total_records = len(df)
+            volume_metrics = {
+                'total_trips': total_records,
                 'total_birds_moved': df['Number of Birds'].sum(),
-                'avg_grand_total_per_bird': self._safe_division(df_with_data_and_birds['Grand Total Cost'].sum(), df_with_data_and_birds['Number of Birds'].sum()),
+                'total_crates_moved': df['Number of Crates'].sum(),
+                'total_weight_moved': df['Total Weight (kg)'].sum(),
+                'third_party_percentage': (len(df[df['Transportation Mode'] == 'Third Party']) / total_records * 100) if total_records > 0 else 0,
+            }
 
-                # Traditional weight-based metrics - FIXED to use allocated costs for purchase/supply cost per kg
-                # Calculate weighted average of all product costs per kg for each record
+            # TIER 2: COST-BASED KPIs - Only records with Grand Total Cost > 0
+            df_with_cost = df[df['Grand Total Cost'] > 0]
+            cost_metrics = {
+                'total_logistics_cost': df_with_cost['Grand Total Cost'].sum(),
+                'avg_trip_cost': df_with_cost['Grand Total Cost'].mean() if len(df_with_cost) > 0 else 0,
+                'avg_fuel_cost': df_with_cost[df_with_cost['Fuel Cost'] > 0]['Fuel Cost'].mean() if len(df_with_cost[df_with_cost['Fuel Cost'] > 0]) > 0 else 0,
+                'records_with_cost_count': len(df_with_cost),
+            }
+
+            # TIER 3: EFFICIENCY KPIs - Only records with both volume > 0 AND allocated costs > 0 (AGGREGATE METHOD)
+
+            # Cost per Bird (using allocated bird costs)
+            df_with_bird_costs = df[df['Whole_Chicken_Cost_per_Bird'] > 0]
+            bird_cost_metrics = {
+                'avg_cost_per_bird': self._safe_division(
+                    (df_with_bird_costs['Whole_Chicken_Cost_per_Bird'] * df_with_bird_costs['Number of Birds']).sum(),
+                    df_with_bird_costs['Number of Birds'].sum()
+                ),
+                'bird_cost_records_count': len(df_with_bird_costs),
+                'total_birds_with_costs': df_with_bird_costs['Number of Birds'].sum(),
+            }
+
+            # Cost per kg (using allocated costs, weight > 0 AND cost > 0)
+            df_with_weight_and_cost = df[(df['Total Weight (kg)'] > 0) & (df['Grand Total Cost'] > 0)]
+            weight_cost_metrics = {
+                'avg_cost_per_kg': self._calculate_weighted_avg_cost_per_kg(df_with_weight_and_cost),
+                'weight_cost_records_count': len(df_with_weight_and_cost),
+                'total_weight_with_costs': df_with_weight_and_cost['Total Weight (kg)'].sum(),
+            }
+
+            # Cost per Crate (using allocated crate costs)
+            df_with_crate_costs = df[df['Egg_Cost_per_Crate'] > 0]
+            crate_cost_metrics = {
+                'avg_cost_per_crate': self._safe_division(
+                    (df_with_crate_costs['Egg_Cost_per_Crate'] * df_with_crate_costs['Number of Crates']).sum(),
+                    df_with_crate_costs['Number of Crates'].sum()
+                ),
+                'crate_cost_records_count': len(df_with_crate_costs),
+                'total_crates_with_costs': df_with_crate_costs['Number of Crates'].sum(),
+            }
+
+            # TIER 4: SPECIALIZED KPIs - Custom filtering based on operation type (same as monthly breakdown)
+            df_offtake_with_weight = df[
+                (df['Logistics_Type_Normalized'] == 'OFFTAKE') &
+                (df['Total Weight (kg)'] > 0) &
+                (df['Grand Total Cost'] > 0)
+            ]
+            df_supply_with_weight = df[
+                (df['Logistics_Type_Normalized'] == 'SUPPLY') &
+                (df['Total Weight (kg)'] > 0) &
+                (df['Grand Total Cost'] > 0)
+            ]
+            df_abuja_supply = df[df['Movement Category'] == 'Abuja Internal Supply']
+            df_abuja_supply_with_weight = df_abuja_supply[
+                (df_abuja_supply['Total Weight (kg)'] > 0) &
+                (df_abuja_supply['Grand Total Cost'] > 0)
+            ]
+
+            specialized_metrics = {
                 'avg_purchase_cost_per_kg': self._calculate_weighted_avg_cost_per_kg(df_offtake_with_weight),
                 'avg_supply_cost_per_kg': self._calculate_weighted_avg_cost_per_kg(df_supply_with_weight),
-                'avg_abuja_supply_cost_per_kg': self._safe_division(df_abuja_supply_with_weight['Grand Total Cost'].sum(), df_abuja_supply_with_weight['Total Weight (kg)'].sum()),
-                'total_weight_moved': df['Total Weight (kg)'].sum(),
-                'avg_grand_total_per_kg': self._safe_division(df_with_data_and_weight['Grand Total Cost'].sum(), df_with_data_and_weight['Total Weight (kg)'].sum()),
+                'avg_abuja_supply_cost_per_kg': self._safe_division(
+                    df_abuja_supply_with_weight['Grand Total Cost'].sum(),
+                    df_abuja_supply_with_weight['Total Weight (kg)'].sum()
+                ),
+                'purchase_records_count': len(df_offtake_with_weight),
+                'supply_records_count': len(df_supply_with_weight),
+                'abuja_supply_records_count': len(df_abuja_supply_with_weight),
+            }
 
-                # NEW: Product-specific metrics - FIXED to use weighted averages
-                'total_crates_moved': df['Number of Crates'].sum(),
-                'avg_egg_cost_per_crate': self._calculate_weighted_avg_cost_per_crate(df),
+            # LEGACY METRICS (maintained for backward compatibility)
+            df_offtake_with_birds = df_offtake_with_weight[df_offtake_with_weight['Number of Birds'] > 0]
+            df_supply_with_birds = df_supply_with_weight[df_supply_with_weight['Number of Birds'] > 0]
+            df_abuja_supply_with_birds = df_abuja_supply_with_weight[df_abuja_supply_with_weight['Number of Birds'] > 0]
 
-                # Product-specific cost per kg metrics - FIXED to use weighted averages
+            legacy_metrics = {
+                'avg_purchase_cost_per_bird': self._safe_division(
+                    (df_offtake_with_birds['Whole_Chicken_Cost_per_Bird'] * df_offtake_with_birds['Number of Birds']).sum(),
+                    df_offtake_with_birds['Number of Birds'].sum()
+                ),
+                'avg_supply_cost_per_bird': self._safe_division(
+                    (df_supply_with_birds['Whole_Chicken_Cost_per_Bird'] * df_supply_with_birds['Number of Birds']).sum(),
+                    df_supply_with_birds['Number of Birds'].sum()
+                ),
+                'avg_abuja_supply_cost_per_bird': self._safe_division(
+                    df_abuja_supply_with_birds['Grand Total Cost'].sum(),
+                    df_abuja_supply_with_birds['Number of Birds'].sum()
+                ),
+                'avg_grand_total_per_bird': bird_cost_metrics['avg_cost_per_bird'],  # Use new calculation
+                'avg_grand_total_per_kg': weight_cost_metrics['avg_cost_per_kg'],   # Use new calculation
+            }
+
+            # PRODUCT-SPECIFIC METRICS (using allocated costs)
+            product_metrics = {
+                'avg_egg_cost_per_crate': crate_cost_metrics['avg_cost_per_crate'],
                 'avg_gizzard_cost_per_kg': self._calculate_weighted_avg_for_product(df, 'Gizzard'),
                 'avg_whole_chicken_cost_per_kg': self._calculate_weighted_avg_for_product(df, 'Whole Chicken'),
                 'avg_laps_cost_per_kg': self._calculate_weighted_avg_for_product(df, 'Laps'),
@@ -705,11 +773,9 @@ class LogisticsDashboardUpdater:
                 'avg_fillet_cost_per_kg': self._calculate_weighted_avg_for_product(df, 'Fillet'),
                 'avg_wings_cost_per_kg': self._calculate_weighted_avg_for_product(df, 'Wings'),
                 'avg_bone_cost_per_kg': self._calculate_weighted_avg_for_product(df, 'Bone'),
-
-                # Whole chicken specific (bird count correlation) - FIXED to use weighted average
                 'avg_whole_chicken_cost_per_bird': self._calculate_weighted_avg_cost_per_bird(df),
 
-                # Product weight totals
+                # Product weight totals (volume metrics - include all records)
                 'total_gizzard_weight': df['Gizzard Weight'].sum(),
                 'total_whole_chicken_weight': df['Whole Chicken Weight'].sum(),
                 'total_laps_weight': df['Laps Weight'].sum(),
@@ -717,12 +783,24 @@ class LogisticsDashboardUpdater:
                 'total_fillet_weight': df['Fillet Weight'].sum(),
                 'total_wings_weight': df['Wings Weight'].sum(),
                 'total_bone_weight': df['Bone Weight'].sum(),
+            }
 
-                # General metrics
-                'avg_fuel_cost': df[df['Fuel Cost'] > 0]['Fuel Cost'].mean() if len(df[df['Fuel Cost'] > 0]) > 0 else 0,
-                'third_party_percentage': (len(df[df['Transportation Mode'] == 'Third Party']) / len(df) * 100) if len(df) > 0 else 0,
+            # RUNNING BALANCE (special calculation)
+            balance_metrics = {
                 'current_running_balance': self.get_current_running_balance(df),
             }
+
+            # Combine all metrics
+            metrics = {}
+            metrics.update(volume_metrics)
+            metrics.update(cost_metrics)
+            metrics.update(bird_cost_metrics)
+            metrics.update(weight_cost_metrics)
+            metrics.update(crate_cost_metrics)
+            metrics.update(specialized_metrics)
+            metrics.update(legacy_metrics)
+            metrics.update(product_metrics)
+            metrics.update(balance_metrics)
 
             # NEW: Benchmark performance metrics
             benchmark_metrics = self.calculate_benchmark_performance(df)
