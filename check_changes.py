@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Check if Google Sheet has been modified since last update.
-Uses Google Drive API to check sheet's last modified timestamp.
+Check if source data worksheet has been modified since last update.
+Uses content hash of the source worksheet instead of Drive API timestamp.
 """
 
 import json
 import os
 import sys
+import hashlib
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+import gspread
 
 def load_env_file():
     """Load environment variables from .env file if it exists."""
@@ -33,103 +35,142 @@ def get_credentials():
         raise ValueError("GOOGLE_SERVICE_ACCOUNT environment variable not set")
 
     try:
-        # Parse JSON from environment variable
-        credentials_dict = json.loads(service_account_info)
+        # Check if it's a file path or JSON content
+        if service_account_info.startswith('/') or service_account_info.endswith('.json'):
+            # It's a file path - for local development
+            credentials = Credentials.from_service_account_file(
+                service_account_info,
+                scopes=[
+                    'https://www.googleapis.com/auth/spreadsheets.readonly',
+                    'https://www.googleapis.com/auth/drive.metadata.readonly'
+                ]
+            )
+            print(f"🔑 Using service account file: {service_account_info}")
+        else:
+            # It's JSON content - for GitHub Actions
+            credentials_dict = json.loads(service_account_info)
+            credentials = Credentials.from_service_account_info(
+                credentials_dict,
+                scopes=[
+                    'https://www.googleapis.com/auth/spreadsheets.readonly',
+                    'https://www.googleapis.com/auth/drive.metadata.readonly'
+                ]
+            )
+            print("🔑 Using service account from environment variable")
 
-        # Create credentials
-        credentials = Credentials.from_service_account_info(
-            credentials_dict,
-            scopes=[
-                'https://www.googleapis.com/auth/spreadsheets.readonly',
-                'https://www.googleapis.com/auth/drive.metadata.readonly'
-            ]
-        )
         return credentials
 
     except json.JSONDecodeError as e:
         print(f"❌ Error parsing service account JSON: {e}")
         sys.exit(1)
+    except FileNotFoundError as e:
+        print(f"❌ Service account file not found: {service_account_info}")
+        sys.exit(1)
     except Exception as e:
         print(f"❌ Error creating credentials: {e}")
         sys.exit(1)
 
-def get_sheet_last_modified(spreadsheet_id, credentials):
-    """Get the last modified timestamp of a Google Sheet."""
+def get_source_data_hash(spreadsheet_id, credentials, source_worksheet_name="Logistics Data"):
+    """Get content hash of the source data worksheet."""
     try:
-        # Build Drive API service
-        drive_service = build('drive', 'v3', credentials=credentials)
+        # Use gspread for easier worksheet access
+        gc = gspread.authorize(credentials)
+        spreadsheet = gc.open_by_key(spreadsheet_id)
 
-        # Get file metadata
-        file_info = drive_service.files().get(
-            fileId=spreadsheet_id,
-            fields='modifiedTime,name'
-        ).execute()
+        # Get the source worksheet
+        source_worksheet = spreadsheet.worksheet(source_worksheet_name)
 
-        return file_info['modifiedTime'], file_info.get('name', 'Unknown')
+        # Get all values from the source worksheet
+        all_values = source_worksheet.get_all_values()
 
+        # Create hash of the content
+        content_str = str(all_values)
+        content_hash = hashlib.md5(content_str.encode('utf-8')).hexdigest()
+
+        print(f"📊 Source worksheet: {source_worksheet_name}")
+        print(f"📝 Rows with data: {len([row for row in all_values if any(cell.strip() for cell in row)])}")
+        print(f"🔗 Content hash: {content_hash}")
+
+        return content_hash
+
+    except gspread.WorksheetNotFound:
+        print(f"❌ Source worksheet '{source_worksheet_name}' not found")
+        print("Available worksheets:")
+        try:
+            gc = gspread.authorize(credentials)
+            spreadsheet = gc.open_by_key(spreadsheet_id)
+            for ws in spreadsheet.worksheets():
+                print(f"  - {ws.title}")
+        except Exception:
+            pass
+        sys.exit(1)
     except Exception as e:
-        print(f"❌ Error getting sheet metadata: {e}")
+        print(f"❌ Error getting source data hash: {e}")
         sys.exit(1)
 
-def load_last_timestamp():
-    """Load the last processed timestamp from file."""
-    timestamp_file = 'last_update.json'
+def load_last_hash():
+    """Load the last processed content hash from file."""
+    hash_file = 'last_source_hash.json'
     try:
-        if os.path.exists(timestamp_file):
-            with open(timestamp_file, 'r') as f:
+        if os.path.exists(hash_file):
+            with open(hash_file, 'r') as f:
                 data = json.load(f)
-                return data.get('last_modified')
+                return data.get('content_hash')
         return None
     except Exception as e:
-        print(f"⚠️  Warning: Could not load last timestamp: {e}")
+        print(f"⚠️  Warning: Could not load last hash: {e}")
         return None
 
-def save_timestamp(timestamp):
-    """Save the current timestamp to file."""
-    timestamp_file = 'last_update.json'
+def save_hash(content_hash):
+    """Save the current content hash to file."""
+    hash_file = 'last_source_hash.json'
     try:
         data = {
-            'last_modified': timestamp,
-            'updated_at': timestamp
+            'content_hash': content_hash,
+            'updated_at': hashlib.md5(str(content_hash).encode()).hexdigest()  # Simple timestamp alternative
         }
-        with open(timestamp_file, 'w') as f:
+        with open(hash_file, 'w') as f:
             json.dump(data, f, indent=2)
-        print(f"💾 Saved new timestamp: {timestamp}")
+        print(f"💾 Saved new content hash: {content_hash}")
     except Exception as e:
-        print(f"❌ Error saving timestamp: {e}")
+        print(f"❌ Error saving hash: {e}")
         sys.exit(1)
 
 def main():
-    """Main function to check for changes."""
+    """Main function to check for changes in source data."""
     try:
+        # Load .env file first
+        load_env_file()
+
         # Get environment variables
         spreadsheet_id = os.getenv('SPREADSHEET_ID')
         if not spreadsheet_id:
             print("❌ SPREADSHEET_ID environment variable not set")
             sys.exit(1)
 
-        print("🔍 Checking for changes in Google Sheet...")
+        # Allow customization of source worksheet name
+        source_worksheet_name = os.getenv('SOURCE_WORKSHEET_NAME', 'Logistics Data')
+
+        print(f"🔍 Checking for changes in source worksheet '{source_worksheet_name}'...")
 
         # Get credentials
         credentials = get_credentials()
 
-        # Get current sheet modification time
-        current_timestamp, sheet_name = get_sheet_last_modified(spreadsheet_id, credentials)
-        print(f"📊 Sheet: {sheet_name}")
-        print(f"🕒 Current modified time: {current_timestamp}")
+        # Get current source data hash
+        current_hash = get_source_data_hash(spreadsheet_id, credentials, source_worksheet_name)
 
-        # Load last processed timestamp
-        last_timestamp = load_last_timestamp()
-        print(f"📅 Last processed time: {last_timestamp or 'Never'}")
+        # Load last processed hash
+        last_hash = load_last_hash()
+        print(f"📅 Last processed hash: {last_hash or 'Never'}")
 
-        # Compare timestamps
-        if current_timestamp != last_timestamp:
-            print("✅ Changes detected! Update needed.")
-            save_timestamp(current_timestamp)
+        # Compare hashes
+        if current_hash != last_hash:
+            print("✅ Source data changes detected! Update needed.")
+            save_hash(current_hash)
             print("NEEDS_UPDATE=true")
             return True
         else:
-            print("⏭️  No changes detected. Skipping update.")
+            print("⏭️  No changes in source data detected. Skipping update.")
             print("NEEDS_UPDATE=false")
             return False
 

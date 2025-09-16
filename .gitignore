@@ -2,8 +2,8 @@
 *.json
 pullus-pipeline-*.json
 
-# Exception: Allow last_update.json for timestamp tracking
-!last_update.json
+# Exception: Allow hash tracking files
+!last_source_hash.json
 
 # Python cache
 __pycache__/
