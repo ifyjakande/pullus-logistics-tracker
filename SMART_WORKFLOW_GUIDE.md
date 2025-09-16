@@ -1,16 +1,20 @@
 # Smart Google Sheets Workflow Optimization Guide
 
-This guide documents how to implement timestamp-based change detection for Google Sheets workflows to reduce unnecessary execution by ~80%.
+This guide documents how to implement content hash-based change detection for Google Sheets workflows to reduce unnecessary execution by ~80%.
 
 ## 🎯 Problem Statement
 
 Standard workflows that run on a schedule (e.g., every 30 minutes) execute regardless of whether the source data has changed, wasting resources and GitHub Actions minutes.
 
+**Additional Problem**: When workflows write back to the same spreadsheet (dashboard updates), timestamp-based detection creates infinite loops - every dashboard update triggers the next workflow run.
+
 ## 💡 Solution Overview
 
-Implement a two-stage workflow:
-1. **Stage 1**: Lightweight change detection (~15 seconds)
-2. **Stage 2**: Heavy processing (only when changes detected)
+Implement a two-stage workflow with content hash-based change detection:
+1. **Stage 1**: Lightweight source data hash comparison (~15 seconds)
+2. **Stage 2**: Heavy processing (only when source data actually changes)
+
+**Key Innovation**: Hash only the source worksheet content, ignoring automated dashboard updates to prevent infinite loops.
 
 ## 🏗️ Implementation Steps
 
@@ -19,15 +23,17 @@ Implement a two-stage workflow:
 ```python
 #!/usr/bin/env python3
 """
-Check if Google Sheet has been modified since last update.
-Uses Google Drive API to check sheet's last modified timestamp.
+Check if source data worksheet has been modified since last update.
+Uses content hash of the source worksheet instead of Drive API timestamp.
 """
 
 import json
 import os
 import sys
+import hashlib
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+import gspread
 
 def load_env_file():
     """Load environment variables from .env file if it exists."""
@@ -50,90 +56,142 @@ def get_credentials():
         raise ValueError("GOOGLE_SERVICE_ACCOUNT environment variable not set")
 
     try:
-        credentials_dict = json.loads(service_account_info)
-        credentials = Credentials.from_service_account_info(
-            credentials_dict,
-            scopes=[
-                'https://www.googleapis.com/auth/spreadsheets.readonly',
-                'https://www.googleapis.com/auth/drive.metadata.readonly'
-            ]
-        )
+        # Check if it's a file path or JSON content
+        if service_account_info.startswith('/') or service_account_info.endswith('.json'):
+            # It's a file path - for local development
+            credentials = Credentials.from_service_account_file(
+                service_account_info,
+                scopes=[
+                    'https://www.googleapis.com/auth/spreadsheets.readonly',
+                    'https://www.googleapis.com/auth/drive.metadata.readonly'
+                ]
+            )
+            print(f"🔑 Using service account file: {service_account_info}")
+        else:
+            # It's JSON content - for GitHub Actions
+            credentials_dict = json.loads(service_account_info)
+            credentials = Credentials.from_service_account_info(
+                credentials_dict,
+                scopes=[
+                    'https://www.googleapis.com/auth/spreadsheets.readonly',
+                    'https://www.googleapis.com/auth/drive.metadata.readonly'
+                ]
+            )
+            print("🔑 Using service account from environment variable")
+
         return credentials
 
     except json.JSONDecodeError as e:
         print(f"❌ Error parsing service account JSON: {e}")
         sys.exit(1)
+    except FileNotFoundError as e:
+        print(f"❌ Service account file not found: {service_account_info}")
+        sys.exit(1)
     except Exception as e:
         print(f"❌ Error creating credentials: {e}")
         sys.exit(1)
 
-def get_sheet_last_modified(spreadsheet_id, credentials):
-    """Get the last modified timestamp of a Google Sheet."""
+def get_source_data_hash(spreadsheet_id, credentials, source_worksheet_name="Logistics Data"):
+    """Get content hash of the source data worksheet."""
     try:
-        drive_service = build('drive', 'v3', credentials=credentials)
-        file_info = drive_service.files().get(
-            fileId=spreadsheet_id,
-            fields='modifiedTime,name'
-        ).execute()
-        return file_info['modifiedTime'], file_info.get('name', 'Unknown')
+        # Use gspread for easier worksheet access
+        gc = gspread.authorize(credentials)
+        spreadsheet = gc.open_by_key(spreadsheet_id)
 
+        # Get the source worksheet
+        source_worksheet = spreadsheet.worksheet(source_worksheet_name)
+
+        # Get all values from the source worksheet
+        all_values = source_worksheet.get_all_values()
+
+        # Create hash of the content
+        content_str = str(all_values)
+        content_hash = hashlib.md5(content_str.encode('utf-8')).hexdigest()
+
+        print(f"📊 Source worksheet: {source_worksheet_name}")
+        print(f"📝 Rows with data: {len([row for row in all_values if any(cell.strip() for cell in row)])}")
+        print(f"🔗 Content hash: {content_hash}")
+
+        return content_hash
+
+    except gspread.WorksheetNotFound:
+        print(f"❌ Source worksheet '{source_worksheet_name}' not found")
+        print("Available worksheets:")
+        try:
+            gc = gspread.authorize(credentials)
+            spreadsheet = gc.open_by_key(spreadsheet_id)
+            for ws in spreadsheet.worksheets():
+                print(f"  - {ws.title}")
+        except Exception:
+            pass
+        sys.exit(1)
     except Exception as e:
-        print(f"❌ Error getting sheet metadata: {e}")
+        print(f"❌ Error getting source data hash: {e}")
         sys.exit(1)
 
-def load_last_timestamp():
-    """Load the last processed timestamp from file."""
-    timestamp_file = 'last_update.json'
+def load_last_hash():
+    """Load the last processed content hash from file."""
+    hash_file = 'last_source_hash.json'
     try:
-        if os.path.exists(timestamp_file):
-            with open(timestamp_file, 'r') as f:
+        if os.path.exists(hash_file):
+            with open(hash_file, 'r') as f:
                 data = json.load(f)
-                return data.get('last_modified')
+                return data.get('content_hash')
         return None
     except Exception as e:
-        print(f"⚠️  Warning: Could not load last timestamp: {e}")
+        print(f"⚠️  Warning: Could not load last hash: {e}")
         return None
 
-def save_timestamp(timestamp):
-    """Save the current timestamp to file."""
-    timestamp_file = 'last_update.json'
+def save_hash(content_hash):
+    """Save the current content hash to file."""
+    hash_file = 'last_source_hash.json'
     try:
         data = {
-            'last_modified': timestamp,
-            'updated_at': timestamp
+            'content_hash': content_hash,
+            'updated_at': hashlib.md5(str(content_hash).encode()).hexdigest()
         }
-        with open(timestamp_file, 'w') as f:
+        with open(hash_file, 'w') as f:
             json.dump(data, f, indent=2)
-        print(f"💾 Saved new timestamp: {timestamp}")
+        print(f"💾 Saved new content hash: {content_hash}")
     except Exception as e:
-        print(f"❌ Error saving timestamp: {e}")
+        print(f"❌ Error saving hash: {e}")
         sys.exit(1)
 
 def main():
-    """Main function to check for changes."""
+    """Main function to check for changes in source data."""
     try:
+        # Load .env file first
+        load_env_file()
+
+        # Get environment variables
         spreadsheet_id = os.getenv('SPREADSHEET_ID')
         if not spreadsheet_id:
             print("❌ SPREADSHEET_ID environment variable not set")
             sys.exit(1)
 
-        print("🔍 Checking for changes in Google Sheet...")
+        # Allow customization of source worksheet name
+        source_worksheet_name = os.getenv('SOURCE_WORKSHEET_NAME', 'Logistics Data')
 
+        print(f"🔍 Checking for changes in source worksheet '{source_worksheet_name}'...")
+
+        # Get credentials
         credentials = get_credentials()
-        current_timestamp, sheet_name = get_sheet_last_modified(spreadsheet_id, credentials)
-        print(f"📊 Sheet: {sheet_name}")
-        print(f"🕒 Current modified time: {current_timestamp}")
 
-        last_timestamp = load_last_timestamp()
-        print(f"📅 Last processed time: {last_timestamp or 'Never'}")
+        # Get current source data hash
+        current_hash = get_source_data_hash(spreadsheet_id, credentials, source_worksheet_name)
 
-        if current_timestamp != last_timestamp:
-            print("✅ Changes detected! Update needed.")
-            save_timestamp(current_timestamp)
+        # Load last processed hash
+        last_hash = load_last_hash()
+        print(f"📅 Last processed hash: {last_hash or 'Never'}")
+
+        # Compare hashes
+        if current_hash != last_hash:
+            print("✅ Source data changes detected! Update needed.")
+            save_hash(current_hash)
             print("NEEDS_UPDATE=true")
             return True
         else:
-            print("⏭️  No changes detected. Skipping update.")
+            print("⏭️  No changes in source data detected. Skipping update.")
             print("NEEDS_UPDATE=false")
             return False
 
@@ -235,7 +293,7 @@ jobs:
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add -f last_update.json
+        git add -f last_source_hash.json
         git diff --staged --quiet || git commit -m "Update last processed timestamp [skip ci]"
         git push
 
@@ -256,7 +314,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install gspread google-auth pandas  # Add your dependencies
+        pip install google-auth google-api-python-client gspread
 
     - name: Update dashboard
       env:
@@ -273,8 +331,8 @@ jobs:
 *.json
 your-service-account-*.json
 
-# Exception: Allow timestamp tracking file
-!last_update.json
+# Exception: Allow hash tracking files
+!last_source_hash.json
 
 # Python cache
 __pycache__/
@@ -300,12 +358,44 @@ Thumbs.db
 *.log
 ```
 
+## 🔍 How Content Hashing Works
+
+### The Magic of MD5 Hashing for Change Detection
+
+**Content Hashing Approach:**
+1. **Read entire source worksheet**: `get_all_values()` returns 2D array of all cells
+2. **Convert to string**: `str(all_values)` creates string representation
+3. **Generate hash**: `hashlib.md5()` creates 32-character fingerprint
+4. **Compare fingerprints**: Different content = different hash = trigger update
+
+**Example:**
+```python
+# 1,000 rows of logistics data
+source_data = [['Date', 'From', 'To'], ['2024-01-01', 'Lagos', 'Abuja'], ...]
+content_string = str(source_data)  # Convert to string
+hash_value = hashlib.md5(content_string.encode('utf-8')).hexdigest()
+# Result: "7f160e04a3b921ce990a8a9ca8b49cad" (always 32 chars)
+```
+
+**Why This Works Brilliantly:**
+- **ANY change** to ANY cell = different hash (avalanche effect)
+- **Same content** = same hash = no unnecessary updates
+- **Fixed size**: 1 row or 1 million rows = same 32-character hash
+- **Fast comparison**: String comparison vs complex timestamp logic
+- **Infinite scalability**: MD5 can handle unlimited data size
+
+**Prevents Infinite Loops:**
+- Only hashes the source worksheet (e.g., "Logistics Data")
+- Dashboard updates don't affect the source hash
+- Workflow only triggers on actual data changes
+
 ## 🔧 Required GitHub Secrets
 
 Set these in your repository settings → Secrets and variables → Actions:
 
 1. **GOOGLE_SERVICE_ACCOUNT**: Full service account JSON content
 2. **SPREADSHEET_ID**: Your Google Sheet ID from the URL
+3. **SOURCE_WORKSHEET_NAME** (optional): Name of source worksheet (defaults to "Logistics Data")
 
 ## 🚨 Critical Implementation Notes
 
@@ -319,19 +409,19 @@ if: always() && needs.check-changes.result == 'success' && needs.check-changes.o
 Without `always()`, the job won't run even when conditions are met.
 
 ### Gitignore Exception
-Essential for timestamp tracking:
+Essential for hash tracking:
 
 ```gitignore
-# Block all JSON files but allow the timestamp file
+# Block all JSON files but allow the hash file
 *.json
-!last_update.json
+!last_source_hash.json
 ```
 
 ### Forced Git Add
-Use `git add -f` to add the timestamp file despite gitignore:
+Use `git add -f` to add the hash file despite gitignore:
 
 ```bash
-git add -f last_update.json
+git add -f last_source_hash.json
 ```
 
 ### Google API Scopes
@@ -350,21 +440,25 @@ scopes=[
 - **With Changes**: Full workflow runs (check-changes + update-dashboard)
 - **Resource Savings**: ~80% reduction in unnecessary workflow executions
 - **Cost Savings**: Significant reduction in GitHub Actions minutes usage
+- **Infinite Loop Prevention**: Dashboard updates no longer trigger new workflow runs
+- **Precision**: Only actual source data changes trigger updates
 
 ## 🔄 Testing the Implementation
 
-1. **Initial Setup**: Run workflow manually to create initial timestamp
-2. **No Changes**: Run again - should skip update stage
-3. **With Changes**: Modify sheet, run workflow - should execute both stages
-4. **Verify Logs**: Check GitHub Actions logs for proper conditional execution
+1. **Initial Setup**: Run workflow manually to create initial content hash
+2. **No Changes**: Run again - should skip update stage with "No changes in source data detected"
+3. **With Changes**: Modify source worksheet, run workflow - should execute both stages
+4. **Dashboard Updates**: Verify that dashboard updates don't trigger new workflow runs
+5. **Verify Logs**: Check GitHub Actions logs for hash comparison and conditional execution
 
 ## 🎯 Key Success Factors
 
 1. **Proper Conditional Logic**: Use `always()` function correctly
 2. **Dual Credential Support**: Handle both local dev and CI/CD environments
-3. **Timestamp Persistence**: Ensure `last_update.json` can be committed
-4. **Error Handling**: Robust error handling in change detection
-5. **API Permissions**: Correct Google API scopes for both Drive and Sheets
+3. **Hash Persistence**: Ensure `last_source_hash.json` can be committed
+4. **Source Worksheet Targeting**: Hash only the source data, not generated sheets
+5. **Error Handling**: Robust error handling in change detection
+6. **API Permissions**: Correct Google API scopes for both Drive and Sheets
 
 ## 🔗 Adaptable to Other Projects
 
@@ -374,12 +468,14 @@ This pattern works for any Google Sheets-based automation:
 2. **Update** dependencies in workflow YAML
 3. **Modify** credential handling if using different libraries
 4. **Adjust** schedule frequency as needed
-5. **Customize** timestamp file location if required
+5. **Customize** source worksheet name via `SOURCE_WORKSHEET_NAME` environment variable
+6. **Adapt** hash file location if required
 
 ## 📈 Performance Impact
 
 - **Before**: 288 workflow runs per day (every 5 min) = ~576 minutes daily
-- **After**: ~288 lightweight checks + ~10 actual updates = ~92 minutes daily
+- **After**: ~288 lightweight hash checks + ~10 actual updates = ~92 minutes daily
 - **Savings**: ~484 minutes daily, ~14,520 minutes monthly
+- **Bonus**: Eliminates infinite loops from dashboard updates
 
 This implementation provides massive resource savings while maintaining the same functionality and responsiveness to changes.
