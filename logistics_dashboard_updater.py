@@ -96,7 +96,7 @@ class LogisticsDashboardUpdater:
                 try:
                     service_account_info = json.loads(service_account_env)
                     creds = Credentials.from_service_account_info(
-                        service_account_info, 
+                        service_account_info,
                         scopes=scopes
                     )
                 except json.JSONDecodeError:
@@ -104,7 +104,7 @@ class LogisticsDashboardUpdater:
             elif os.path.isfile(self.credentials_path):
                 # Use local file
                 creds = Credentials.from_service_account_file(
-                    self.credentials_path, 
+                    self.credentials_path,
                     scopes=scopes
                 )
             else:
@@ -2302,7 +2302,7 @@ class LogisticsDashboardUpdater:
                         # Color the running balance column based on positive/negative
                         if running_balance < 0:
                             self.format_cell_range(f'F{row}', self.colors['negative'], bold=True, sheet=self.cash_flow_sheet)
-                        elif running_balance > 0 and i == len(cash_flow_data) - 1:  # Only highlight the very final balance
+                        elif running_balance > 0:
                             self.format_cell_range(f'F{row}', self.colors['positive'], bold=True, sheet=self.cash_flow_sheet)
             
             # Apply all formatting and auto-resize columns
