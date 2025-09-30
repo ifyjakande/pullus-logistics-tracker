@@ -825,12 +825,12 @@ class LogisticsDashboardUpdater:
 
             # Overall compliance rate
             total_with_benchmarks = len(df_with_benchmarks)
-            within_benchmark = len(df_with_benchmarks[df_with_benchmarks['Benchmark_Status'] == 'Within'])
-            near_benchmark = len(df_with_benchmarks[df_with_benchmarks['Benchmark_Status'] == 'Near'])
+            good_benchmark = len(df_with_benchmarks[df_with_benchmarks['Benchmark_Status'] == 'Good'])
+            warning_benchmark = len(df_with_benchmarks[df_with_benchmarks['Benchmark_Status'] == 'Warning'])
             exceeded_benchmark = len(df_with_benchmarks[df_with_benchmarks['Benchmark_Status'] == 'Exceeded'])
 
-            benchmark_metrics['overall_compliance_rate'] = (within_benchmark / total_with_benchmarks * 100) if total_with_benchmarks > 0 else 0
-            benchmark_metrics['near_benchmark_rate'] = (near_benchmark / total_with_benchmarks * 100) if total_with_benchmarks > 0 else 0
+            benchmark_metrics['overall_compliance_rate'] = (good_benchmark / total_with_benchmarks * 100) if total_with_benchmarks > 0 else 0
+            benchmark_metrics['warning_rate'] = (warning_benchmark / total_with_benchmarks * 100) if total_with_benchmarks > 0 else 0
             benchmark_metrics['violation_rate'] = (exceeded_benchmark / total_with_benchmarks * 100) if total_with_benchmarks > 0 else 0
 
             # Specific benchmark performance
@@ -838,8 +838,8 @@ class LogisticsDashboardUpdater:
                 benchmark_data = df_with_benchmarks[df_with_benchmarks['Applicable_Benchmark'] == benchmark_type]
 
                 if len(benchmark_data) > 0:
-                    within_count = len(benchmark_data[benchmark_data['Benchmark_Status'] == 'Within'])
-                    compliance_rate = (within_count / len(benchmark_data) * 100)
+                    good_count = len(benchmark_data[benchmark_data['Benchmark_Status'] == 'Good'])
+                    compliance_rate = (good_count / len(benchmark_data) * 100)
 
                     # Average overage for this benchmark type
                     violations = benchmark_data[benchmark_data['Benchmark_Status'] == 'Exceeded']
@@ -1066,10 +1066,13 @@ class LogisticsDashboardUpdater:
                 variance_percent = ((actual_cost_per_kg - benchmark_value) / benchmark_value) * 100
 
                 # Determine status
-                if variance_percent <= 5:
-                    status = 'Within'
-                elif variance_percent <= 20:
-                    status = 'Near'
+                # "Good" = 5% or more below benchmark (good buffer)
+                # "Warning" = Below benchmark but within 5% (at risk)
+                # "Exceeded" = At or above benchmark (over budget)
+                if actual_cost_per_kg <= benchmark_value * 0.95:
+                    status = 'Good'
+                elif actual_cost_per_kg < benchmark_value:
+                    status = 'Warning'
                 else:
                     status = 'Exceeded'
 
@@ -1078,7 +1081,7 @@ class LogisticsDashboardUpdater:
                 df.loc[idx, 'Benchmark_Value'] = benchmark_value
                 df.loc[idx, 'Benchmark_Variance_Percent'] = variance_percent
                 df.loc[idx, 'Benchmark_Status'] = status
-                df.loc[idx, 'Is_Violation'] = variance_percent > 20  # Violation if >20% over
+                df.loc[idx, 'Is_Violation'] = actual_cost_per_kg >= benchmark_value  # Violation if at or above benchmark
 
         return df
 
@@ -1168,12 +1171,13 @@ class LogisticsDashboardUpdater:
 
         # Calculate status based on aggregated cost vs benchmark
         if aggregated_cost > 0 and benchmark_value > 0:
-            variance_percent = ((aggregated_cost - benchmark_value) / benchmark_value) * 100
-
-            if variance_percent <= 5:
-                status = 'Within'
-            elif variance_percent <= 20:
-                status = 'Near'
+            # "Good" = 5% or more below benchmark (good buffer)
+            # "Warning" = Below benchmark but within 5% (at risk)
+            # "Exceeded" = At or above benchmark (over budget)
+            if aggregated_cost <= benchmark_value * 0.95:
+                status = 'Good'
+            elif aggregated_cost < benchmark_value:
+                status = 'Warning'
             else:
                 status = 'Exceeded'
 
@@ -2175,9 +2179,9 @@ class LogisticsDashboardUpdater:
 
                             # Color benchmark status (column AC - last column)
                             benchmark_status = row_data_dict.get('Benchmark_Status', '')
-                            if benchmark_status == 'Within':
+                            if benchmark_status == 'Good':
                                 self.format_cell_range(f'AC{row_num}', {'red': 0.85, 'green': 0.95, 'blue': 0.85}, sheet=self.dashboard_sheet)  # Green
-                            elif benchmark_status == 'Near':
+                            elif benchmark_status == 'Warning':
                                 self.format_cell_range(f'AC{row_num}', {'red': 1.0, 'green': 0.97, 'blue': 0.88}, sheet=self.dashboard_sheet)  # Yellow
                             elif benchmark_status == 'Exceeded':
                                 self.format_cell_range(f'AC{row_num}', {'red': 0.98, 'green': 0.85, 'blue': 0.85}, sheet=self.dashboard_sheet)  # Red
