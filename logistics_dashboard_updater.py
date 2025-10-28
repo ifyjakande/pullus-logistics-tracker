@@ -247,6 +247,7 @@ class LogisticsDashboardUpdater:
         master_locations = {
             'ABUJA': ['ABUJA', 'FCT', 'FEDERAL CAPITAL TERRITORY', 'AMAC'],
             'KADUNA': ['KADUNA'],
+            'KATSINA': ['KATSINA', 'KASTINA'],  # FIX: Add KATSINA with common misspelling
             'COLD ROOM': ['COLD ROOM', 'COLDROOM', 'COLD STORAGE', 'COOLING ROOM'],
             'KANO': ['KANO'],
             'JOS': ['JOS', 'PLATEAU'],
@@ -908,16 +909,18 @@ class LogisticsDashboardUpdater:
         if len(df) == 0:
             return 0
 
-        # Get all product types with weights
-        products = ['Gizzard', 'Whole Chicken', 'Laps', 'Breast', 'Fillet', 'Wings', 'Bone']
+        # FIX: Use correct product naming (underscores) to match column naming convention
+        # Weight columns have spaces, cost columns have underscores
+        products = ['Gizzard', 'Whole_Chicken', 'Laps', 'Breast', 'Fillet', 'Wings', 'Bone']
 
         total_allocated_cost = 0
         total_weight = 0
 
         for _, row in df.iterrows():
             for product in products:
-                weight_col = f'{product} Weight'
-                cost_per_kg_col = f'{product}_Cost_per_kg'
+                # FIX: Use correct column names - weight columns have spaces, cost columns have underscores
+                weight_col = f'{product.replace("_", " ")} Weight'  # Convert to space for weight columns
+                cost_per_kg_col = f'{product.replace(" ", "_")}_Cost_per_kg'  # Ensure underscore for cost columns
 
                 if weight_col in row and cost_per_kg_col in row:
                     weight = row[weight_col] if pd.notna(row[weight_col]) else 0
@@ -1328,19 +1331,19 @@ class LogisticsDashboardUpdater:
 
                             # Product-specific cost per kg metrics
                             'Avg Gizzard Cost per kg': avg_gizzard_cost_per_kg if pd.notna(avg_gizzard_cost_per_kg) else 0,
-                            'Gizzard_Percent_Change': 0,  # Will be calculated later
+                            'Gizzard_Percent_Change': 0.0,  # FIX: Use float to avoid FutureWarning
                             'Avg Chicken Cost per kg': avg_chicken_cost_per_kg if pd.notna(avg_chicken_cost_per_kg) else 0,
-                            'Chicken_Percent_Change': 0,  # Will be calculated later
+                            'Chicken_Percent_Change': 0.0,  # FIX: Use float to avoid FutureWarning
                             'Avg Laps Cost per kg': avg_laps_cost_per_kg if pd.notna(avg_laps_cost_per_kg) else 0,
-                            'Laps_Percent_Change': 0,  # Will be calculated later
+                            'Laps_Percent_Change': 0.0,  # FIX: Use float to avoid FutureWarning
                             'Avg Breast Cost per kg': avg_breast_cost_per_kg if pd.notna(avg_breast_cost_per_kg) else 0,
-                            'Breast_Percent_Change': 0,  # Will be calculated later
+                            'Breast_Percent_Change': 0.0,  # FIX: Use float to avoid FutureWarning
                             'Avg Fillet Cost per kg': avg_fillet_cost_per_kg if pd.notna(avg_fillet_cost_per_kg) else 0,
-                            'Fillet_Percent_Change': 0,  # Will be calculated later
+                            'Fillet_Percent_Change': 0.0,  # FIX: Use float to avoid FutureWarning
                             'Avg Wings Cost per kg': avg_wings_cost_per_kg if pd.notna(avg_wings_cost_per_kg) else 0,
-                            'Wings_Percent_Change': 0,  # Will be calculated later
+                            'Wings_Percent_Change': 0.0,  # FIX: Use float to avoid FutureWarning
                             'Avg Bone Cost per kg': avg_bone_cost_per_kg if pd.notna(avg_bone_cost_per_kg) else 0,
-                            'Bone_Percent_Change': 0,  # Will be calculated later
+                            'Bone_Percent_Change': 0.0,  # FIX: Use float to avoid FutureWarning
 
                             # Operational metrics
                             'Avg Fuel Cost': avg_fuel_cost if pd.notna(avg_fuel_cost) else 0,
