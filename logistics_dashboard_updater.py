@@ -498,7 +498,7 @@ class LogisticsDashboardUpdater:
         """Read and process data from the Logistics Data sheet."""
         try:
             # Get all data from the sheet
-            all_data = self.data_sheet.get_all_values()
+            all_data = self.data_sheet.get_all_values(value_render_option='UNFORMATTED')
             
             # Headers are in row 3 (index 2) - use actual column names from the sheet
             headers = all_data[2]  # Row 3: actual headers
