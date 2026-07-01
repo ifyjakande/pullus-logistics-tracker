@@ -319,11 +319,11 @@ class MetricsExplainerCreator:
             ["KEY PRINCIPLES:", "", "", "", "", "", "", "", "", ""],
             ["• Cost Sharing: Costs distributed based on weight or space usage", "", "", "", "", "", "", "", "", ""],
             ["• Space Equivalency: 1 crate = 2kg equivalent space for mixed shipments", "", "", "", "", "", "", "", "", ""],
-            ["• Total Cost: Uses Logistics + Fuel + Miscellaneous costs", "", "", "", "", "", "", "", "", ""],
+            ["• Total Cost: Uses Logistics + Fuel + Miscellaneous + Slaughter Men Transportation + Cold Truck Diesel costs", "", "", "", "", "", "", "", "", ""],
             ["• Industry Standard: Weighted average method for accurate cost calculations", "", "", "", "", "", "", "", "", ""],
             ["", "", "", "", "", "", "", "", "", ""],
             ["COST COMPONENTS:", "", "", "", "", "", "", "", "", ""],
-            ["Total Cost = Logistics Cost + Fuel Cost + Miscellaneous Cost", "", "", "", "", "", "", "", "", ""],
+            ["Total Cost = Logistics Cost + Fuel Cost + Miscellaneous Cost + Slaughter Men Transportation + Cold Truck Diesel", "", "", "", "", "", "", "", "", ""],
             ["", "", "", "", "", "", "", "", "", ""],
         ]
 
@@ -716,7 +716,7 @@ class MetricsExplainerCreator:
             ["", "", "", "", "", "", "", "", "", ""],
             ["Q6: What's the difference between Total Cost and Logistics Cost?", "", "", "", "", "", "", "", "", ""],
             ["A6: Total Cost is comprehensive:", "", "", "", "", "", "", "", "", ""],
-            ["    • Total Cost = Logistics + Fuel + Miscellaneous costs", "", "", "", "", "", "", "", "", ""],
+            ["    • Total Cost = Logistics + Fuel + Miscellaneous + Slaughter Men Transportation + Cold Truck Diesel costs", "", "", "", "", "", "", "", "", ""],
             ["    • Logistics Cost = Just the transportation service fee", "", "", "", "", "", "", "", "", ""],
             ["    • All calculations use Total Cost for accuracy", "", "", "", "", "", "", "", "", ""],
             ["", "", "", "", "", "", "", "", "", ""],

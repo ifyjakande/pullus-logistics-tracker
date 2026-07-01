@@ -6,7 +6,7 @@ This script replaces manual Google Sheets formulas with automated calculations
 and provides detailed monthly breakdowns with beautiful formatting.
 
 Key Features:
-- Automated calculations using Grand Total Cost (Logistics + Fuel + Miscellaneous)
+- Automated calculations using Grand Total Cost (Logistics + Fuel + Miscellaneous + Slaughter Men Transportation + Cold Truck Diesel)
 - Monthly breakdown with movement categorization
 - Location normalization for accurate categorization
 - Colorful, professional formatting
@@ -551,16 +551,22 @@ class LogisticsDashboardUpdater:
                              'Whole Chicken Weight', 'Laps Weight', 'Breast Weight',
                              'Fillet Weight', 'Wings Weight', 'Bone Weight',
                              'Total Weight (kg)', 'Added Funds', 'Logistics Cost',
-                             'Fuel Cost', 'Miscellaneous Cost']
-            
+                             'Fuel Cost', 'Miscellaneous Cost',
+                             'Slaughter Men Transportation', 'Cold Truck Diesel']
+
             for col in numeric_columns:
+                # Tolerate a missing column (e.g. header not yet added to source) by treating it as 0
+                if col not in df.columns:
+                    df[col] = 0
                 df[col] = pd.to_numeric(df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-            
-            # Calculate Grand Total Cost (Logistics + Fuel + Miscellaneous)
+
+            # Calculate Grand Total Cost (Logistics + Fuel + Miscellaneous + Slaughter Men Transportation + Cold Truck Diesel)
             df['Grand Total Cost'] = (
                 df['Logistics Cost'] +
                 df['Fuel Cost'] +
-                df['Miscellaneous Cost']
+                df['Miscellaneous Cost'] +
+                df['Slaughter Men Transportation'] +
+                df['Cold Truck Diesel']
             )
 
             # Add product-specific unit economics calculations
@@ -1105,10 +1111,14 @@ class LogisticsDashboardUpdater:
                 if row['Added Funds'] > 0:
                     running_balance += row['Added Funds']
                 
-                # Deduct only logistics cost + miscellaneous cost (EXCLUDE fuel cost)
+                # Deduct logistics + miscellaneous + slaughter men transportation + cold truck diesel (EXCLUDE fuel cost)
+                # Slaughter men transportation and cold truck diesel used to be lumped into miscellaneous,
+                # so they are paid from allocated funds and deducted the same way misc always was.
                 logistics_cost = row.get('Logistics Cost', 0)
                 misc_cost = row.get('Miscellaneous Cost', 0)
-                actual_expense = logistics_cost + misc_cost
+                slaughter_transport_cost = row.get('Slaughter Men Transportation', 0)
+                cold_truck_diesel_cost = row.get('Cold Truck Diesel', 0)
+                actual_expense = logistics_cost + misc_cost + slaughter_transport_cost + cold_truck_diesel_cost
                 
                 if actual_expense > 0:
                     running_balance -= actual_expense
@@ -1709,10 +1719,14 @@ class LogisticsDashboardUpdater:
                         'Running Balance': running_balance
                     })
                 
-                # Deduct only logistics cost + miscellaneous cost (EXCLUDE fuel cost)
+                # Deduct logistics + miscellaneous + slaughter men transportation + cold truck diesel (EXCLUDE fuel cost)
+                # Slaughter men transportation and cold truck diesel used to be lumped into miscellaneous,
+                # so they are paid from allocated funds and deducted the same way misc always was.
                 logistics_cost = row.get('Logistics Cost', 0)
                 misc_cost = row.get('Miscellaneous Cost', 0)
-                actual_expense = logistics_cost + misc_cost
+                slaughter_transport_cost = row.get('Slaughter Men Transportation', 0)
+                cold_truck_diesel_cost = row.get('Cold Truck Diesel', 0)
+                actual_expense = logistics_cost + misc_cost + slaughter_transport_cost + cold_truck_diesel_cost
                 
                 if actual_expense > 0:
                     running_balance -= actual_expense
