@@ -112,22 +112,28 @@ class LogisticsDashboardUpdater:
             
             self.gc = gspread.authorize(creds)
             self.spreadsheet = self.gc.open_by_key(self.spreadsheet_id)
-            self.data_sheet = self.spreadsheet.worksheet('Logistics Data')
-            
+
+            # Fetch all worksheets in one call instead of one metadata fetch per tab
+            worksheets = {ws.title: ws for ws in self.spreadsheet.worksheets()}
+
+            self.data_sheet = worksheets.get('Logistics Data')
+            if self.data_sheet is None:
+                raise gspread.WorksheetNotFound('Logistics Data')
+
             # Create or get the sheets
-            try:
-                self.dashboard_sheet = self.spreadsheet.worksheet(self.new_sheet_name)
+            self.dashboard_sheet = worksheets.get(self.new_sheet_name)
+            if self.dashboard_sheet is not None:
                 print(f"✓ Found existing '{self.new_sheet_name}' sheet")
-            except gspread.WorksheetNotFound:
+            else:
                 self.dashboard_sheet = self.spreadsheet.add_worksheet(
                     title=self.new_sheet_name, rows=100, cols=20
                 )
                 print(f"✓ Created new '{self.new_sheet_name}' sheet")
-            
-            try:
-                self.cash_flow_sheet = self.spreadsheet.worksheet(self.cash_flow_sheet_name)
+
+            self.cash_flow_sheet = worksheets.get(self.cash_flow_sheet_name)
+            if self.cash_flow_sheet is not None:
                 print(f"✓ Found existing '{self.cash_flow_sheet_name}' sheet")
-            except gspread.WorksheetNotFound:
+            else:
                 self.cash_flow_sheet = self.spreadsheet.add_worksheet(
                     title=self.cash_flow_sheet_name, rows=200, cols=10
                 )
@@ -1596,7 +1602,18 @@ class LogisticsDashboardUpdater:
             'format': format_dict,
             'sheet': sheet if sheet else self.dashboard_sheet
         })
-    
+
+    def queue_merge_cells(self, range_name: str, sheet=None):
+        """Queue a mergeCells request to run in the same batch as formatting."""
+        if not hasattr(self, '_format_queue'):
+            self._format_queue = []
+
+        self._format_queue.append({
+            'range': range_name,
+            'merge': True,
+            'sheet': sheet if sheet else self.dashboard_sheet
+        })
+
     def flush_formatting_queue(self, sheet=None):
         """Process all queued formatting requests efficiently using batchUpdate."""
         if not hasattr(self, '_format_queue') or not self._format_queue:
@@ -1641,15 +1658,26 @@ class LogisticsDashboardUpdater:
                         start_col, start_row = self._a1_to_grid_range(start_cell)
                         end_col, end_row = self._a1_to_grid_range(end_cell)
 
+                        grid_range = {
+                            "sheetId": sheet_id,
+                            "startRowIndex": start_row,
+                            "endRowIndex": end_row + 1,
+                            "startColumnIndex": start_col,
+                            "endColumnIndex": end_col + 1
+                        }
+
+                        if req.get('merge'):
+                            batch_requests.append({
+                                "mergeCells": {
+                                    "range": grid_range,
+                                    "mergeType": "MERGE_ALL"
+                                }
+                            })
+                            continue
+
                         batch_requests.append({
                             "repeatCell": {
-                                "range": {
-                                    "sheetId": sheet_id,
-                                    "startRowIndex": start_row,
-                                    "endRowIndex": end_row + 1,
-                                    "startColumnIndex": start_col,
-                                    "endColumnIndex": end_col + 1
-                                },
+                                "range": grid_range,
                                 "cell": {
                                     "userEnteredFormat": req['format']
                                 },
@@ -1804,30 +1832,31 @@ class LogisticsDashboardUpdater:
             
             # Initialize format queue
             self._format_queue = []
-            
+
+            # Collect all value writes and send them in a single batch update
+            value_updates = []
+
             current_row = 1
-            
+
             # Title - single merged cell
-            self.execute_with_retry(
-                self.dashboard_sheet.update, 
-                [['PULLUS LOGISTICS DASHBOARD & METRICS']], 
-                f'A{current_row}'
-            )
-            self.execute_with_retry(self.dashboard_sheet.merge_cells, f'A{current_row}:H{current_row}')
-            
+            value_updates.append({
+                'range': f'A{current_row}',
+                'values': [['PULLUS LOGISTICS DASHBOARD & METRICS']]
+            })
+            self.queue_merge_cells(f'A{current_row}:H{current_row}')
+
             # Only format essential elements - title
-            self.format_cell_range(f'A{current_row}:H{current_row}', 
+            self.format_cell_range(f'A{current_row}:H{current_row}',
                                  self.colors['header'], bold=True, font_size=16)
             current_row += 1
-            
+
             # Add timestamp with subtle formatting
             timestamp_text = self.get_last_updated_timestamp()
-            self.execute_with_retry(
-                self.dashboard_sheet.update,
-                [[timestamp_text]],
-                f'A{current_row}'
-            )
-            self.execute_with_retry(self.dashboard_sheet.merge_cells, f'A{current_row}:H{current_row}')
+            value_updates.append({
+                'range': f'A{current_row}',
+                'values': [[timestamp_text]]
+            })
+            self.queue_merge_cells(f'A{current_row}:H{current_row}')
             self.format_cell_range(f'A{current_row}:H{current_row}', 
                                  self.colors['timestamp'], 
                                  {'red': 0.4, 'green': 0.4, 'blue': 0.6},  # Soft purple text
@@ -1840,11 +1869,10 @@ class LogisticsDashboardUpdater:
                 ['Metric', 'Value', 'Description']
             ]
             
-            self.execute_with_retry(
-                self.dashboard_sheet.update,
-                kpi_section_data,
-                f'A{current_row}:C{current_row + 1}'
-            )
+            value_updates.append({
+                'range': f'A{current_row}:C{current_row + 1}',
+                'values': kpi_section_data
+            })
             
             # Format only essential headers
             self.format_cell_range(f'A{current_row}:C{current_row}', 
@@ -1888,11 +1916,10 @@ class LogisticsDashboardUpdater:
             ]
             
             kpi_start_row = current_row
-            self.execute_with_retry(
-                self.dashboard_sheet.update,
-                kpi_data,
-                f'A{current_row}:C{current_row + len(kpi_data) - 1}'
-            )
+            value_updates.append({
+                'range': f'A{current_row}:C{current_row + len(kpi_data) - 1}',
+                'values': kpi_data
+            })
             
             # Apply italic formatting to all descriptions in column C
             self.format_cell_range(f'C{kpi_start_row}:C{kpi_start_row + len(kpi_data) - 1}',
@@ -1935,11 +1962,10 @@ class LogisticsDashboardUpdater:
                     ['Benchmark Type', 'Compliance Rate', 'Avg Budget Overrun']
                 ]
 
-                self.execute_with_retry(
-                    self.dashboard_sheet.update,
-                    benchmark_section_data,
-                    f'A{current_row}:C{current_row + 1}'
-                )
+                value_updates.append({
+                    'range': f'A{current_row}:C{current_row + 1}',
+                    'values': benchmark_section_data
+                })
 
                 # Format benchmark section headers
                 self.format_cell_range(f'A{current_row}:C{current_row}',
@@ -1958,11 +1984,10 @@ class LogisticsDashboardUpdater:
                 ]
 
                 benchmark_start_row = current_row
-                self.execute_with_retry(
-                    self.dashboard_sheet.update,
-                    benchmark_data,
-                    f'A{current_row}:C{current_row + len(benchmark_data) - 1}'
-                )
+                value_updates.append({
+                    'range': f'A{current_row}:C{current_row + len(benchmark_data) - 1}',
+                    'values': benchmark_data
+                })
 
                 # Format benchmark performance data with colors and alternating rows
                 for i, row_data in enumerate(benchmark_data):
@@ -2001,11 +2026,10 @@ class LogisticsDashboardUpdater:
                     ['Date', 'Route', 'Actual ₦/kg', 'vs Benchmark']
                 ]
 
-                self.execute_with_retry(
-                    self.dashboard_sheet.update,
-                    violation_section_data,
-                    f'A{current_row}:D{current_row + 1}'
-                )
+                value_updates.append({
+                    'range': f'A{current_row}:D{current_row + 1}',
+                    'values': violation_section_data
+                })
 
                 # Format violation section headers
                 self.format_cell_range(f'A{current_row}:D{current_row}',
@@ -2025,11 +2049,10 @@ class LogisticsDashboardUpdater:
                     ])
 
                 if violation_data:
-                    self.execute_with_retry(
-                        self.dashboard_sheet.update,
-                        violation_data,
-                        f'A{current_row}:D{current_row + len(violation_data) - 1}'
-                    )
+                    value_updates.append({
+                        'range': f'A{current_row}:D{current_row + len(violation_data) - 1}',
+                        'values': violation_data
+                    })
 
                     # Format violation data with red background for severe violations
                     for i, row_data in enumerate(violation_data):
@@ -2051,11 +2074,10 @@ class LogisticsDashboardUpdater:
                      'Purchase ₦/kg', 'Supply ₦/kg', 'Benchmark', 'Status']
                 ]
                 
-                self.execute_with_retry(
-                    self.dashboard_sheet.update,
-                    monthly_section_data,
-                    f'A{current_row}:AC{current_row + 1}'
-                )
+                value_updates.append({
+                    'range': f'A{current_row}:AC{current_row + 1}',
+                    'values': monthly_section_data
+                })
 
                 # Format only section header and column headers
                 self.format_cell_range(f'A{current_row}:AC{current_row}',
@@ -2111,11 +2133,10 @@ class LogisticsDashboardUpdater:
                     ])
                 
                 if monthly_data:
-                    self.execute_with_retry(
-                        self.dashboard_sheet.update,
-                        monthly_data,
-                        f'A{current_row}:AC{current_row + len(monthly_data) - 1}'
-                    )
+                    value_updates.append({
+                        'range': f'A{current_row}:AC{current_row + len(monthly_data) - 1}',
+                        'values': monthly_data
+                    })
                     
                     # Add alternating colors for different months (4-color cycle)
                     current_month = None
@@ -2203,7 +2224,10 @@ class LogisticsDashboardUpdater:
                             elif benchmark_status == 'Exceeded':
                                 self.format_cell_range(f'AC{row_num}', {'red': 0.98, 'green': 0.85, 'blue': 0.85}, sheet=self.dashboard_sheet)  # Red
             
-            # Apply all formatting in batch and auto-resize columns
+            # Write all values in a single batch update, then apply formatting and auto-resize
+            if value_updates:
+                self.execute_with_retry(self.dashboard_sheet.batch_update, value_updates)
+
             print("🎨 Applying final formatting and auto-sizing...")
             self.flush_formatting_queue(self.dashboard_sheet)
             self.auto_resize_columns(self.dashboard_sheet, 'A', 'AC')
@@ -2241,35 +2265,29 @@ class LogisticsDashboardUpdater:
             
             # Initialize format queue for cash flow sheet
             self._format_queue = []
-            
+
+            # Collect all value writes and send them in a single batch update
+            value_updates = []
+
             current_row = 1
-            
+
             # Title
-            self.execute_with_retry(
-                self.cash_flow_sheet.update,
-                [['CASH FLOW TIMELINE - RUNNING BALANCE']],
-                f'A{current_row}'
-            )
-            # Try to merge cells, but handle errors gracefully if already merged
-            try:
-                self.execute_with_retry(self.cash_flow_sheet.merge_cells, f'A{current_row}:F{current_row}')
-            except Exception as merge_error:
-                print(f"⚠ Warning: Could not merge title cells (may already be merged): {merge_error}")
-            self.format_cell_range(f'A{current_row}:F{current_row}', 
+            value_updates.append({
+                'range': f'A{current_row}',
+                'values': [['CASH FLOW TIMELINE - RUNNING BALANCE']]
+            })
+            self.queue_merge_cells(f'A{current_row}:F{current_row}', sheet=self.cash_flow_sheet)
+            self.format_cell_range(f'A{current_row}:F{current_row}',
                                  self.colors['header'], bold=True, font_size=16, sheet=self.cash_flow_sheet)
             current_row += 1
-            
+
             # Add timestamp with subtle formatting
             timestamp_text = self.get_last_updated_timestamp()
-            self.execute_with_retry(
-                self.cash_flow_sheet.update,
-                [[timestamp_text]],
-                f'A{current_row}'
-            )
-            try:
-                self.execute_with_retry(self.cash_flow_sheet.merge_cells, f'A{current_row}:F{current_row}')
-            except Exception:
-                pass  # Handle merge errors gracefully
+            value_updates.append({
+                'range': f'A{current_row}',
+                'values': [[timestamp_text]]
+            })
+            self.queue_merge_cells(f'A{current_row}:F{current_row}', sheet=self.cash_flow_sheet)
             self.format_cell_range(f'A{current_row}:F{current_row}', 
                                  self.colors['timestamp'], 
                                  {'red': 0.4, 'green': 0.4, 'blue': 0.6},  # Soft purple text
@@ -2279,11 +2297,10 @@ class LogisticsDashboardUpdater:
             if not cash_flow_timeline.empty:
                 # Cash flow headers
                 cash_flow_headers = [['Date', 'Transaction Type', 'From', 'To', 'Amount', 'Running Balance']]
-                self.execute_with_retry(
-                    self.cash_flow_sheet.update,
-                    cash_flow_headers,
-                    f'A{current_row}:F{current_row}'
-                )
+                value_updates.append({
+                    'range': f'A{current_row}:F{current_row}',
+                    'values': cash_flow_headers
+                })
                 self.format_cell_range(f'A{current_row}:F{current_row}', 
                                      self.colors['primary'], {'red': 1, 'green': 1, 'blue': 1}, 
                                      bold=True, sheet=self.cash_flow_sheet)
@@ -2303,11 +2320,10 @@ class LogisticsDashboardUpdater:
                     ])
                 
                 if cash_flow_data:
-                    self.execute_with_retry(
-                        self.cash_flow_sheet.update,
-                        cash_flow_data, 
-                        f'A{current_row}:F{current_row + len(cash_flow_data) - 1}'
-                    )
+                    value_updates.append({
+                        'range': f'A{current_row}:F{current_row + len(cash_flow_data) - 1}',
+                        'values': cash_flow_data
+                    })
                     
                     # Format only critical cells - Fund additions and final balance
                     for i in range(len(cash_flow_data)):
@@ -2326,7 +2342,10 @@ class LogisticsDashboardUpdater:
                         elif running_balance > 0:
                             self.format_cell_range(f'F{row}', self.colors['positive'], bold=True, sheet=self.cash_flow_sheet)
             
-            # Apply all formatting and auto-resize columns
+            # Write all values in a single batch update, then apply formatting and auto-resize
+            if value_updates:
+                self.execute_with_retry(self.cash_flow_sheet.batch_update, value_updates)
+
             print("💰 Finalizing cash flow sheet...")
             self.flush_formatting_queue(self.cash_flow_sheet)
             self.auto_resize_columns(self.cash_flow_sheet, 'A', 'F')

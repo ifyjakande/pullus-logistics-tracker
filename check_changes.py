@@ -7,6 +7,7 @@ Uses content hash of the source worksheet instead of Drive API timestamp.
 import json
 import os
 import sys
+import time
 import hashlib
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -72,16 +73,29 @@ def get_credentials():
 
 def get_source_data_hash(spreadsheet_id, credentials, source_worksheet_name="Logistics Data"):
     """Get content hash of the source data worksheet."""
+    max_retries = 4
     try:
-        # Use gspread for easier worksheet access
-        gc = gspread.authorize(credentials)
-        spreadsheet = gc.open_by_key(spreadsheet_id)
+        # Retry transient API errors (rate limits / server errors) with backoff
+        for attempt in range(max_retries):
+            try:
+                # Use gspread for easier worksheet access
+                gc = gspread.authorize(credentials)
+                spreadsheet = gc.open_by_key(spreadsheet_id)
 
-        # Get the source worksheet
-        source_worksheet = spreadsheet.worksheet(source_worksheet_name)
+                # Get the source worksheet
+                source_worksheet = spreadsheet.worksheet(source_worksheet_name)
 
-        # Get all values from the source worksheet
-        all_values = source_worksheet.get_all_values()
+                # Get all values from the source worksheet
+                all_values = source_worksheet.get_all_values()
+                break
+            except gspread.exceptions.APIError as e:
+                status = e.response.status_code
+                if (status == 429 or status >= 500) and attempt < max_retries - 1:
+                    wait_time = 5 * (2 ** attempt)
+                    print(f"Transient API error {status} (attempt {attempt + 1}/{max_retries}), retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                    continue
+                raise
 
         # Create hash of the content
         content_str = str(all_values)
