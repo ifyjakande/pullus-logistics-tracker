@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       needs_update: ${{ steps.check.outputs.needs_update }}
+      content_hash: ${{ steps.check.outputs.content_hash }}
 
     steps:
     - name: Checkout repository
@@ -44,20 +45,16 @@ jobs:
         else
           echo "needs_update=false" >> $GITHUB_OUTPUT
         fi
+        # Hand the hash to the update job, which records it only if the rebuild
+        # works. Committing it here meant a failed rebuild still marked the data
+        # as processed, so the next run skipped and the dashboard silently aged.
+        echo "content_hash=$(python -c "import json; print(json.load(open('last_source_hash.json'))['content_hash'])")" >> $GITHUB_OUTPUT
         cat check_output.txt
-
-    - name: Commit timestamp file
-      if: steps.check.outputs.needs_update == 'true'
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add -f last_source_hash.json
-        git diff --staged --quiet || git commit -m "Update last processed timestamp [skip ci]"
-        git push
 
   update-dashboard:
     needs: check-changes
-    if: always() && needs.check-changes.result == 'success' && needs.check-changes.outputs.needs_update == 'true'
+    # A manual run always rebuilds, even when the hash says nothing changed.
+    if: always() && needs.check-changes.result == 'success' && (needs.check-changes.outputs.needs_update == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
 
     steps:
@@ -80,4 +77,27 @@ jobs:
         SPREADSHEET_ID: ${{ secrets.SPREADSHEET_ID }}
       run: |
         python logistics_dashboard_updater.py
-        
+
+    # Only reached when the rebuild above actually succeeded.
+    - name: Record processed hash
+      if: needs.check-changes.outputs.content_hash != ''
+      env:
+        CONTENT_HASH: ${{ needs.check-changes.outputs.content_hash }}
+      run: |
+        python - <<'PY'
+        import hashlib, json, os
+        h = os.environ['CONTENT_HASH']
+        json.dump({'content_hash': h,
+                   'updated_at': hashlib.md5(str(h).encode()).hexdigest()},
+                  open('last_source_hash.json', 'w'), indent=2)
+        PY
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add -f last_source_hash.json
+        if git diff --staged --quiet; then
+          echo "hash unchanged, nothing to commit"
+        else
+          git commit -m "Update last processed timestamp [skip ci]"
+          git pull --rebase -q origin master
+          git push
+        fi

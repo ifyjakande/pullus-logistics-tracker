@@ -20,8 +20,20 @@ import time
 import re
 import os
 import json
+import sys
 from typing import Dict
 import pytz
+
+
+def find_header_row(values, required, limit=10):
+    """0-based index of the first row within the top `limit` rows that carries
+    every name in `required` (case- and whitespace-insensitive), else None."""
+    wanted = {str(name).strip().lower() for name in required}
+    for i, row in enumerate(values[:limit]):
+        if wanted <= {str(cell).strip().lower() for cell in row}:
+            return i
+    return None
+
 
 # Load environment variables from .env file if it exists
 def load_env_file():
@@ -506,8 +518,15 @@ class LogisticsDashboardUpdater:
             # Get all data from the sheet
             all_data = self.data_sheet.get_all_values()
             
-            # Headers are in row 3 (index 2) - use actual column names from the sheet
-            headers = all_data[2]  # Row 3: actual headers
+            # The header row moves - it sat on row 3 behind a title + filter strip
+            # until August 2026, when those two rows were deleted and it became row 1.
+            # Find it by the column names it carries instead of hardcoding an offset.
+            header_idx = find_header_row(all_data, ("date", "logistics type"))
+            if header_idx is None:
+                print("✗ No header row (Date + Logistics Type) found in the first 10 rows")
+                return pd.DataFrame()
+
+            headers = all_data[header_idx]
 
             # Clean up headers (remove empty strings and strip whitespace)
             cleaned_headers = []
@@ -520,8 +539,8 @@ class LogisticsDashboardUpdater:
             # Use the actual headers from the sheet
             print(f"📋 Found {len(cleaned_headers)} columns in source data")
             
-            # Data starts from row 4 (index 3)
-            data_rows = all_data[3:]
+            # Data starts on the row after the header
+            data_rows = all_data[header_idx + 1:]
 
             # Create DataFrame using actual column names from the sheet
             df_data = []
@@ -2467,3 +2486,6 @@ if __name__ == "__main__":
         print(f"   💰 '{updater.cash_flow_sheet_name}' - Running Balance Timeline")
     else:
         print("\n❌ Update failed. Please check the error messages above.")
+        # Exit non-zero so the workflow goes red - this used to print the failure
+        # and exit 0, which left every broken run showing green in Actions.
+        sys.exit(1)
