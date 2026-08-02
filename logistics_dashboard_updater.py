@@ -1912,7 +1912,7 @@ class LogisticsDashboardUpdater:
 
                 # NEW: Crate-based metrics
                 ['Total Crates Moved', f"{overall_metrics.get('total_crates_moved', 0):,.0f}", "Sum of all egg crates transported (offtake + supply)"],
-                ['Average Egg Cost per Crate', f"₦{overall_metrics.get('avg_egg_cost_per_crate', 0):,.2f}", "Average logistics cost per crate for egg shipments (offtake + supply)"],
+                ['Average Egg Cost per Crate', f"₦{overall_metrics.get('avg_egg_cost_per_crate', 0):,.2f}", f"Total cost ÷ crates, across the {overall_metrics.get('total_crates_with_costs', 0):,.0f} crates on trips that have a cost recorded (all data, not YTD)"],
 
                 # Traditional weight metrics
                 ['Average Purchase Cost per kg', f"₦{overall_metrics.get('avg_purchase_cost_per_kg', 0):,.2f}", "Total offtake costs ÷ total offtake weight (offtake only)"],
